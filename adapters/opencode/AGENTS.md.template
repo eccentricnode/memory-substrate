@@ -1,0 +1,9 @@
+# AGENTS.md
+
+> memory-substrate adapter template for opencode. Copy into a project root as `AGENTS.md` (or merge with existing) to give opencode sessions access to your memory directory.
+
+---
+
+(Inline the contents of `memory-protocol.md` here, OR if your opencode version supports `@`-imports for AGENTS.md, use the reference below.)
+
+@./memory-protocol.md
