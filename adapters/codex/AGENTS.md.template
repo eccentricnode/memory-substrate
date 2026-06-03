@@ -1,0 +1,9 @@
+# AGENTS.md
+
+> This is a memory-substrate adapter template. Copy this file into a project root as `AGENTS.md` (or merge with an existing one) to give codex sessions in that project access to your memory-substrate memory directory.
+
+---
+
+@./memory-protocol.md
+
+(If your codex implementation does not follow `@`-imports, replace the line above with the inlined contents of `memory-protocol.md`.)
