@@ -21,7 +21,7 @@ memory-substrate extracts the pattern into a substrate-neutral spec. Same files.
 - `STRATEGY.md` — design rationale, sibling-project relationships, phased plan.
 - `SPEC.md` — v0.1.0-draft of the specification.
 - `adapters/` — per-host shims (TBD).
-- `reference/` — substrate-agnostic tools: validator and compactor; migrator is still TBD.
+- `reference/` — substrate-agnostic tools: validator, compactor, and migrator.
 
 ## Reference tools
 
@@ -39,6 +39,16 @@ bun reference/compactor.ts <memory_root> [output_dir]
 
 The compactor writes `MEMORY.md` and `COMPACTION_REPORT.md` to a proposal directory outside
 the memory root so the index can be reviewed before any durable memory is changed.
+
+Create a human-reviewed migration proposal from a historical PAI memory directory:
+
+```bash
+bun reference/migrator.ts <pai_root> <output_dir>
+```
+
+The migrator writes `MIGRATION_REPORT.md` plus a proposed `memory/` directory under the
+output directory. The report stays outside the proposed memory root so validator runs only
+against durable memory files.
 
 ## Sibling projects
 

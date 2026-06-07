@@ -7,7 +7,8 @@
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
     "validate": "bun reference/validator.ts",
-    "compact": "bun reference/compactor.ts"
+    "compact": "bun reference/compactor.ts",
+    "migrate": "bun reference/migrator.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.2.22",
