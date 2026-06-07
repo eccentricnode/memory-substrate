@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -59,6 +66,25 @@ function request(root: string, dryRun = false): MemoryWorkerRequest {
 function topicFiles(root: string): string[] {
   return readdirSync(root).filter(
     (entry) => entry.endsWith(".md") && entry !== "MEMORY.md",
+  );
+}
+
+function writeExistingMemory(root: string): void {
+  writeFileSync(
+    join(root, "project_stale-live-rule.md"),
+    `---
+name: stale-live-rule
+description: Stale live rule
+metadata:
+  type: project
+---
+
+Stale live rule.
+`,
+  );
+  writeFileSync(
+    join(root, "MEMORY.md"),
+    "# Memory\n\n- [Stale live rule](project_stale-live-rule.md) — Stale live rule\n",
   );
 }
 
@@ -159,6 +185,37 @@ describe("live pi memory worker runner", () => {
     );
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
+  test("applies live delete drafts through the safe applicator", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const process = recordingProcess(
+      JSON.stringify({
+        drafts: [
+          {
+            action: "delete",
+            relativePath: "project_stale-live-rule.md",
+            description: "stale live rule contradicted by the batch",
+          },
+        ],
+      }),
+    );
+    const worker = createLivePiMemoryWorkerRunner({
+      process,
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(root, "project_stale-live-rule.md"))).toBe(false);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).not.toContain(
+      "project_stale-live-rule.md",
+    );
+    expect(result.changedPaths?.some((path) =>
+      path.endsWith("project_stale-live-rule.md"),
+    )).toBe(true);
   });
 
   test("malformed live worker output fails without writing", async () => {

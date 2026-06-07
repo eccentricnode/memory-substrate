@@ -2,7 +2,6 @@
 
 - P0 — pi-dev forced-write extension.
   - Status: completed and verified, including the new manual `memory-flush` command.
-  - Open: decide and implement a delete/remove draft path so stale or contradicted memories can be removed safely, not only appended or updated.
   - Open: strengthen dedupe fallback beyond exact-match detection; survey suggests keyword or near-duplicate handling is not yet covered.
   - Open: add preflight model-name validation for absent `PI_MEMORY_MODEL` so a missing/invalid default fails with a clear local error instead of relying on child `pi` failure.
   - Open: decide behavior when `MEMORY.md` is missing in enabled mode, then document and test that path.
@@ -20,10 +19,14 @@
   - Completed: prompt, config, and flush ignore-mode transitions are audited for false-positive debugging.
   - Completed: ignore mode injects a protective no-cite/no-apply instruction while avoiding memory reads.
   - Completed: dry-run stdout now prints proposed paths plus rendered topic/index content inline while writing nothing.
+  - Completed: delete/remove drafts are implemented for stale or contradicted memories.
+  - Completed: dry-run delete proposals write nothing.
+  - Completed: live worker JSON delete drafts flow through the safe applicator.
+  - Completed: validator failure rolls back deleted topics and index entries.
   - Verified: focused worker-write test passed: `bun test tests/worker-write.test.ts`; 14 pass.
-  - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 17 pass, 100 expectations.
+  - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 22 pass.
   - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 62 pass.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 66 pass.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

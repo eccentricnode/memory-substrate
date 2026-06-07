@@ -51,10 +51,13 @@ export interface MemoryWorkerRunner {
   run(request: MemoryWorkerRequest): Promise<MemoryWorkerResult>;
 }
 
+export type MemoryDraftAction = "upsert" | "delete";
+
 export interface MemoryWriteDraft {
-  type: MemoryType;
-  description: string;
-  body: string;
+  action?: MemoryDraftAction;
+  type?: MemoryType;
+  description?: string;
+  body?: string;
   hook?: string;
   title?: string;
   name?: string;
@@ -323,7 +326,10 @@ function parseTopicFrontmatter(content: string): {
   return { name, description, type };
 }
 
-function findExistingTopic(root: string, draft: RequiredMemoryDraft): string | undefined {
+function findExistingTopic(
+  root: string,
+  draft: RequiredUpsertMemoryDraft,
+): string | undefined {
   const desiredName = draft.name;
   const desiredDescription = draft.description.toLowerCase();
   for (const path of topicFiles(root)) {
@@ -334,7 +340,8 @@ function findExistingTopic(root: string, draft: RequiredMemoryDraft): string | u
   return undefined;
 }
 
-interface RequiredMemoryDraft {
+interface RequiredUpsertMemoryDraft {
+  action: "upsert";
   type: MemoryType;
   name: string;
   description: string;
@@ -344,19 +351,67 @@ interface RequiredMemoryDraft {
   relativePath: string;
 }
 
+interface RequiredDeleteMemoryDraft {
+  action: "delete";
+  relativePath: string;
+  reason: string;
+}
+
+type RequiredMemoryDraft = RequiredUpsertMemoryDraft | RequiredDeleteMemoryDraft;
+
+interface UpsertWritePlan {
+  action: "upsert";
+  draft: RequiredUpsertMemoryDraft;
+  topicPath: string;
+  topicRelativePath: string;
+}
+
+interface DeleteWritePlan {
+  action: "delete";
+  draft: RequiredDeleteMemoryDraft;
+  topicPath: string;
+  topicRelativePath: string;
+}
+
+type MemoryChangePlan = UpsertWritePlan | DeleteWritePlan;
+
 interface FileSnapshot {
   existed: boolean;
   content?: string;
 }
 
 function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
-  if (!VALID_TYPES.has(draft.type)) {
+  const action = draft.action ?? "upsert";
+  if (action === "delete") {
+    const relativePath = draft.relativePath;
+    if (!relativePath) throw new Error("delete memory relativePath is required");
+    if (isAbsolute(relativePath)) {
+      throw new Error(`memory relativePath must be relative: ${relativePath}`);
+    }
+    if (!relativePath.endsWith(".md") || basename(relativePath) === "MEMORY.md") {
+      throw new Error(`invalid topic memory path: ${relativePath}`);
+    }
+    return {
+      action,
+      relativePath,
+      reason: oneLine(
+        draft.description ?? draft.body ?? "delete stale or contradicted memory",
+        DESCRIPTION_CAP,
+      ),
+    };
+  }
+  if (action !== "upsert") {
+    throw new Error(`invalid memory draft action: ${action}`);
+  }
+  if (!VALID_TYPES.has(draft.type as MemoryType)) {
     throw new Error(`invalid memory type: ${draft.type}`);
   }
-  const description = oneLine(draft.description, DESCRIPTION_CAP);
+  const description = oneLine(draft.description ?? "", DESCRIPTION_CAP);
   if (!description) throw new Error("memory description is required");
+  if (!draft.body) throw new Error("memory body is required");
   const name = slugify(draft.name ?? description);
-  const relativePath = draft.relativePath ?? `${draft.type}_${name}.md`;
+  const type = draft.type as MemoryType;
+  const relativePath = draft.relativePath ?? `${type}_${name}.md`;
   if (isAbsolute(relativePath)) {
     throw new Error(`memory relativePath must be relative: ${relativePath}`);
   }
@@ -364,7 +419,8 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
     throw new Error(`invalid topic memory path: ${relativePath}`);
   }
   return {
-    type: draft.type,
+    action,
+    type,
     name,
     description,
     body: draft.body.trimEnd(),
@@ -374,14 +430,14 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   };
 }
 
-function renderTopic(draft: RequiredMemoryDraft): string {
+function renderTopic(draft: RequiredUpsertMemoryDraft): string {
   return `---\nname: ${draft.name}\ndescription: ${draft.description}\nmetadata:\n  type: ${draft.type}\n---\n\n${draft.body}\n`;
 }
 
 function upsertIndexContent(
   index: string,
   topicRelativePath: string,
-  draft: RequiredMemoryDraft,
+  draft: RequiredUpsertMemoryDraft,
 ): string {
   const line = `- [${draft.title}](${topicRelativePath}) — ${draft.hook}`;
   const lines = index.split(/\r?\n/);
@@ -401,6 +457,15 @@ function upsertIndexContent(
     nextLines.push(line);
   }
   return `${nextLines.join("\n")}\n`;
+}
+
+function removeIndexPointers(index: string, topicRelativePath: string): string {
+  const lines = index.split(/\r?\n/);
+  const nextLines = lines.filter((existing) => {
+    const match = existing.match(/^- \[[^\]]+\]\(([^)]+)\)/);
+    return match?.[1] !== topicRelativePath;
+  });
+  return `${nextLines.join("\n").replace(/\n+$/g, "")}\n`;
 }
 
 function assertIndexWithinAdapterCaps(index: string): void {
@@ -424,42 +489,46 @@ function displayMemoryPath(root: string, path: string): string {
 
 function renderDryRunProposal(
   request: MemoryWorkerRequest,
-  writePlan: Array<{
-    draft: RequiredMemoryDraft;
-    topicPath: string;
-    topicRelativePath: string;
-  }>,
+  changePlan: MemoryChangePlan[],
   proposedPaths: Set<string>,
 ): string {
   const indexPath = safePath(request.memoryRoot, "MEMORY.md");
   let proposedIndex = existsSync(indexPath)
     ? readFileSync(indexPath, "utf8")
     : "# Memory\n";
-  for (const item of writePlan) {
-    proposedIndex = upsertIndexContent(
-      proposedIndex,
-      item.topicRelativePath,
-      item.draft,
-    );
+  for (const item of changePlan) {
+    proposedIndex =
+      item.action === "upsert"
+        ? upsertIndexContent(proposedIndex, item.topicRelativePath, item.draft)
+        : removeIndexPointers(proposedIndex, item.topicRelativePath);
   }
   assertIndexWithinAdapterCaps(proposedIndex);
 
   const sortedPaths = [...proposedPaths]
     .map((path) => displayMemoryPath(request.memoryRoot, path))
     .sort((a, b) => a.localeCompare(b));
-  const topicSections = writePlan
+  const upsertSections = changePlan
+    .filter((item): item is UpsertWritePlan => item.action === "upsert")
     .map(
       (item) =>
         `--- ${item.topicRelativePath} ---\n${renderTopic(item.draft).trimEnd()}`,
     )
     .join("\n\n");
+  const deleteSections = changePlan
+    .filter((item): item is DeleteWritePlan => item.action === "delete")
+    .map((item) => `- ${item.topicRelativePath}: ${item.draft.reason}`)
+    .join("\n");
+  const upsertCount = changePlan.filter((item) => item.action === "upsert").length;
+  const deleteCount = changePlan.filter((item) => item.action === "delete").length;
 
   return [
-    `dry-run: proposed ${writePlan.length} memory write(s)`,
+    `dry-run: proposed ${upsertCount} memory write(s), ${deleteCount} memory delete(s)`,
     "proposed paths:",
     ...sortedPaths.map((path) => `- ${path}`),
-    "proposed topic content:",
-    topicSections,
+    upsertSections ? "proposed topic content:" : "",
+    upsertSections,
+    deleteSections ? "proposed deletes:" : "",
+    deleteSections,
     "--- MEMORY.md ---",
     proposedIndex.trimEnd(),
   ]
@@ -486,6 +555,17 @@ function restoreSnapshots(snapshots: Map<string, FileSnapshot>): void {
       rmSync(path, { force: true });
     }
   }
+}
+
+function applyPlanToIndex(index: string, changePlan: MemoryChangePlan[]): string {
+  let nextIndex = index;
+  for (const item of changePlan) {
+    nextIndex =
+      item.action === "upsert"
+        ? upsertIndexContent(nextIndex, item.topicRelativePath, item.draft)
+        : removeIndexPointers(nextIndex, item.topicRelativePath);
+  }
+  return nextIndex;
 }
 
 function cleanupEmptyDirectories(root: string, paths: string[]): void {
@@ -603,12 +683,17 @@ You do not have file tools in this worker. Return structured write drafts only; 
 extension will perform the confined two-step save and validator run.
 
 Output exactly one JSON object, with no markdown fences and no commentary:
-{"drafts":[{"type":"project","description":"one line <=200 chars","body":"markdown body","hook":"index hook <=150 chars","title":"Index title","name":"kebab-case-name","relativePath":"project_kebab-case-name.md"}]}
+{"drafts":[{"action":"upsert","type":"project","description":"one line <=200 chars","body":"markdown body","hook":"index hook <=150 chars","title":"Index title","name":"kebab-case-name","relativePath":"project_kebab-case-name.md"}]}
+
+To remove a stale or contradicted existing memory, use a delete draft:
+{"drafts":[{"action":"delete","relativePath":"project_stale-topic.md","description":"why this memory is stale"}]}
 
 Rules:
 - drafts must be empty unless the batch contains a durable trigger.
-- type must be one of user, feedback, project, reference.
+- action defaults to upsert when omitted.
+- upsert type must be one of user, feedback, project, reference.
 - feedback and project bodies must start with the fact, then include **Why:** and **How to apply:** lines.
+- delete drafts must target an existing topic relativePath from the snapshot.
 - relativePath must be inside the memory root and must not be MEMORY.md.
 - If no memory should be written, output {"drafts":[]}.
 
@@ -657,9 +742,25 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
       throw new Error(`live worker draft ${index} is not an object`);
     }
     const record = draft as Record<string, unknown>;
+    const action = asString(record.action);
     const type = asString(record.type);
     const description = asString(record.description);
     const body = asString(record.body);
+    if (action !== undefined && action !== "upsert" && action !== "delete") {
+      throw new Error(`live worker draft ${index} has invalid action`);
+    }
+    if (action === "delete") {
+      const relativePath = asString(record.relativePath);
+      if (!relativePath) {
+        throw new Error(`live worker draft ${index} missing delete relativePath`);
+      }
+      return {
+        action,
+        description,
+        body,
+        relativePath,
+      };
+    }
     if (!VALID_TYPES.has(type as MemoryType)) {
       throw new Error(`live worker draft ${index} has invalid type`);
     }
@@ -667,6 +768,7 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
       throw new Error(`live worker draft ${index} missing description or body`);
     }
     return {
+      action: action ?? "upsert",
       type: type as MemoryType,
       description,
       body,
@@ -724,7 +826,20 @@ export async function applyMemoryWriteDrafts(
 
   const changedPaths = new Set<string>();
   const proposedPaths = new Set<string>();
-  const writePlan = normalized.map((draft) => {
+  const changePlan = normalized.map((draft): MemoryChangePlan => {
+    if (draft.action === "delete") {
+      const topicPath = safePath(request.memoryRoot, draft.relativePath);
+      if (!existsSync(topicPath)) {
+        throw new Error(`delete memory target does not exist: ${draft.relativePath}`);
+      }
+      if (!statSync(topicPath).isFile()) {
+        throw new Error(`delete memory target is not a file: ${draft.relativePath}`);
+      }
+      const topicRelativePath = relativeTopicPath(request.memoryRoot, topicPath);
+      proposedPaths.add(topicPath);
+      proposedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
+      return { action: "delete", draft, topicPath, topicRelativePath };
+    }
     const preferredPath = safePath(request.memoryRoot, draft.relativePath);
     const expectedFilename = `${draft.type}_${draft.name}.md`;
     if (basename(preferredPath) !== expectedFilename) {
@@ -741,13 +856,13 @@ export async function applyMemoryWriteDrafts(
       : preferredPath;
     proposedPaths.add(topicPath);
     proposedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
-    return { draft, topicPath, topicRelativePath };
+    return { action: "upsert", draft, topicPath, topicRelativePath };
   });
 
   if (request.dryRun) {
     return {
       exitCode: 0,
-      stdout: renderDryRunProposal(request, writePlan, proposedPaths),
+      stdout: renderDryRunProposal(request, changePlan, proposedPaths),
       proposedPaths: [...proposedPaths],
     };
   }
@@ -757,24 +872,22 @@ export async function applyMemoryWriteDrafts(
   let nextIndex = existsSync(indexPath)
     ? readFileSync(indexPath, "utf8")
     : "# Memory\n";
-  for (const item of writePlan) {
-    nextIndex = upsertIndexContent(
-      nextIndex,
-      item.topicRelativePath,
-      item.draft,
-    );
-  }
+  nextIndex = applyPlanToIndex(nextIndex, changePlan);
   assertIndexWithinAdapterCaps(nextIndex);
 
   snapshots.set(indexPath, snapshotFile(indexPath));
-  for (const item of writePlan) {
+  for (const item of changePlan) {
     snapshots.set(item.topicPath, snapshotFile(item.topicPath));
   }
 
   try {
-    for (const item of writePlan) {
-      mkdirSync(dirname(item.topicPath), { recursive: true });
-      writeFileSync(item.topicPath, renderTopic(item.draft));
+    for (const item of changePlan) {
+      if (item.action === "upsert") {
+        mkdirSync(dirname(item.topicPath), { recursive: true });
+        writeFileSync(item.topicPath, renderTopic(item.draft));
+      } else {
+        rmSync(item.topicPath, { force: true });
+      }
       changedPaths.add(item.topicPath);
     }
     writeFileSync(indexPath, nextIndex);
@@ -788,14 +901,14 @@ export async function applyMemoryWriteDrafts(
       restoreSnapshots(snapshots);
       cleanupEmptyDirectories(
         request.memoryRoot,
-        writePlan.map((item) => item.topicPath),
+        changePlan.map((item) => item.topicPath),
       );
     }
     return {
       exitCode: failedValidation ? 1 : 0,
       stdout: failedValidation
-        ? `rolled back ${writePlan.length} memory write(s) after validator failure`
-        : `wrote ${writePlan.length} memory write(s)`,
+        ? `rolled back ${changePlan.length} memory change(s) after validator failure`
+        : `applied ${changePlan.length} memory change(s)`,
       stderr: failedValidation
         ? "validator failed after memory write; rolled back attempted changes"
         : undefined,
@@ -807,7 +920,7 @@ export async function applyMemoryWriteDrafts(
     restoreSnapshots(snapshots);
     cleanupEmptyDirectories(
       request.memoryRoot,
-      writePlan.map((item) => item.topicPath),
+      changePlan.map((item) => item.topicPath),
     );
     throw error;
   }

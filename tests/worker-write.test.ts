@@ -68,6 +68,25 @@ function topicFiles(root: string): string[] {
   );
 }
 
+function writeExistingMemory(root: string): void {
+  writeFileSync(
+    join(root, "project_stale-rule.md"),
+    `---
+name: stale-rule
+description: Stale rule
+metadata:
+  type: project
+---
+
+Stale rule.
+`,
+  );
+  writeFileSync(
+    join(root, "MEMORY.md"),
+    "# Memory\n\n- [Stale rule](project_stale-rule.md) — Stale rule\n",
+  );
+}
+
 describe("deterministic memory worker write path", () => {
   test("chatter produces no memory writes", async () => {
     const root = memoryRoot();
@@ -200,6 +219,70 @@ describe("deterministic memory worker write path", () => {
     );
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("delete draft removes stale topic file and index pointer", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_stale-rule.md",
+          description: "stale rule contradicted by current user correction",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("applied 1 memory change");
+    expect(existsSync(join(root, "project_stale-rule.md"))).toBe(false);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).not.toContain(
+      "project_stale-rule.md",
+    );
+    expect(result.changedPaths?.some((path) => path.endsWith("MEMORY.md"))).toBe(
+      true,
+    );
+    expect(result.changedPaths?.some((path) =>
+      path.endsWith("project_stale-rule.md"),
+    )).toBe(true);
+    expect(result.validator?.exitCode).toBe(0);
+  });
+
+  test("delete dry-run reports proposed removal and writes nothing", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const beforeTopic = readFileSync(join(root, "project_stale-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_stale-rule.md",
+          description: "dry-run stale removal",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "Correction: stale rule is wrong.", true),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("dry-run");
+    expect(result.stdout).toContain("0 memory write(s), 1 memory delete(s)");
+    expect(result.stdout).toContain("proposed deletes:");
+    expect(result.stdout).toContain("- project_stale-rule.md: dry-run stale removal");
+    expect(result.stdout).toContain("--- MEMORY.md ---");
+    expect(result.stdout).not.toContain(
+      "- [Stale rule](project_stale-rule.md) — Stale rule",
+    );
+    expect(readFileSync(join(root, "project_stale-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
   });
 
   test("out-of-root topic path is refused before writing", async () => {
@@ -445,6 +528,35 @@ Existing rule.
 
     expect(result.exitCode).toBe(1);
     expect(readFileSync(join(root, "project_existing-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
+  });
+
+  test("validator failure restores a deleted topic and index entry", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const beforeTopic = readFileSync(join(root, "project_stale-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_stale-rule.md",
+          description: "delete rollback",
+        },
+      ],
+      validate: async () => ({
+        exitCode: 1,
+        stderr: "validator found errors",
+      }),
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("rolled back");
+    expect(readFileSync(join(root, "project_stale-rule.md"), "utf8")).toBe(
       beforeTopic,
     );
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
