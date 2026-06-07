@@ -21,14 +21,17 @@
   - Status: completed and test-covered.
   - Completed: enabled/disabled, ignore, dry-run, memory root, model default, debounce, and max batch defaults.
   - Completed: `PI_MEMORY_ENABLED=0` prevents bootstrap, reads, writes, injection, queueing, worker invocation, and validation.
+  - Completed: host/substrate disabled signals are supported through `RuntimeConfig.disabledReason` and pi-dev adapter host/context/integration disabled checks before memory root resolution.
   - Completed: ignore mode prevents injection, writes, citations, and application.
+  - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts tests/validate-command.test.ts`; exit 0, 20 pass, 68 expectations.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 54 pass, 262 expectations.
 
 - P0 — Memory injection.
   - Status: completed and test-covered.
   - Completed: `before_agent_start` reads `MEMORY.md`, ranks index lines by prompt overlap, and injects attributed snippets only.
   - Completed: disabled and ignore modes inject nothing.
   - Bounds: no topic-file bodies; cap at 12 index lines or 4 KB, whichever is smaller.
-  - Unresolved review findings: audit truncation behavior and add explicit 4 KB cap coverage.
+  - Unresolved review findings: add explicit 4 KB cap/truncation audit coverage.
 
 - P0 — Host safety boundaries.
   - Status: preserved through the verified implementation.
@@ -36,13 +39,13 @@
   - Preserve: child workers must receive `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding must keep failing closed.
   - Preserve: all writes stay confined to the resolved memory root and refuse symlink/out-of-root escapes.
   - Preserve: default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
-  - Unresolved review findings: add host-substrate disabled-signal and default-root coverage.
+  - Unresolved review findings: add default-root coverage if not already covered.
 
 - P1 — Reference validator.
   - Status: completed and verified.
   - Completed: importable `validateMemoryDirectory` API added while preserving CLI behavior.
   - Completed: validator checks description length, rejects `MEMORY.md` frontmatter, checks filename/name consistency, rejects markdown in descriptions, detects root-escaping/broken links and invalid index lines, reports unresolved `[[name]]` links as info, and treats topic files missing from `MEMORY.md` as two-step-save errors.
-  - Unresolved review findings: stricter validator requirements for canonical em dash pointers, flat type coercion, topic markdown links, and target file type/name form.
+  - Unresolved review findings: stricter validator requirements for canonical em dash index pointers, flat type coercion, topic markdown links, and target file type/name form.
 
 - P1 — pi-dev adapter docs/protocol.
   - Status: completed and verified.

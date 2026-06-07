@@ -267,4 +267,43 @@ describe("pi-dev memory command surface", () => {
       level: "info",
     });
   });
+
+  test("host substrate disabled signal short-circuits handlers before root resolution", async () => {
+    delete process.env.PI_MEMORY_ENABLED;
+    process.env.PI_MEMORY_ROOT = "/missing-memory-root";
+    const worker = recordingWorker();
+    const { handlers, commands } = fakePi({ worker });
+    const ctx = Object.assign(fakeContext(), {
+      substrate: {
+        memoryDisabled: true,
+        memoryDisabledReason: "host HIPAA boundary",
+      },
+    });
+
+    handlers.get("session_start")?.({}, ctx);
+    const startResult = handlers.get("before_agent_start")?.(
+      { prompt: "remember Bun", systemPrompt: "base" },
+      ctx,
+    );
+    await handlers.get("agent_end")?.({ messages: ["remember Bun"] }, ctx);
+    const compactResult = await handlers.get("session_before_compact")?.({}, ctx);
+    commands.get("memory-status")?.handler("", ctx);
+    await commands.get("memory-flush")?.handler("", ctx);
+    await commands.get("memory-validate")?.handler("", ctx);
+
+    expect(startResult).toBeUndefined();
+    expect(compactResult).toBeUndefined();
+    expect(worker.requests).toHaveLength(0);
+    expect(ctx.ui.statuses.map((status) => status.value)).toEqual([
+      "memory: disabled",
+      "memory: disabled",
+      "memory: disabled",
+      "memory: disabled",
+    ]);
+    expect(ctx.ui.notifications).toEqual([
+      { message: "memory: disabled", level: "info" },
+      { message: "memory flush skipped: disabled", level: "info" },
+      { message: "memory validation skipped: disabled", level: "info" },
+    ]);
+  });
 });

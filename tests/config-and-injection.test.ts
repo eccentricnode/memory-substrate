@@ -40,6 +40,20 @@ describe("pi-dev runtime config", () => {
     expect(config.error).toBeUndefined();
   });
 
+  test("host disabled signal does not resolve or touch the memory root", () => {
+    const config = resolveRuntimeConfig({
+      cwd: "/tmp/missing-cwd",
+      env: { PI_MEMORY_ROOT: "/tmp/missing-memory" },
+      homeDir: "/tmp/missing-home",
+      disabledReason: "host HIPAA boundary",
+    });
+
+    expect(config.enabled).toBe(false);
+    expect(config.disabledReason).toBe("host HIPAA boundary");
+    expect(config.memoryRoot).toBeUndefined();
+    expect(config.error).toBeUndefined();
+  });
+
   test("resolves explicit relative roots against the pi cwd", () => {
     const cwd = tempDir();
     mkdirSync(join(cwd, ".memory"));

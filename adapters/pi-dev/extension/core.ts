@@ -30,6 +30,7 @@ export interface MemoryExtensionCoreOptions {
   cwd: string;
   env?: RuntimeEnv;
   homeDir?: string;
+  disabledReason?: string;
   fs?: InjectionFileSystem;
   worker?: MemoryWorkerRunner;
   validator?: MemoryValidatorRunner;

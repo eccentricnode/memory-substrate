@@ -15,6 +15,7 @@ export interface RuntimeConfigInput {
   cwd: string;
   env?: RuntimeEnv;
   homeDir?: string;
+  disabledReason?: string;
 }
 
 export interface RuntimeConfig {
@@ -26,6 +27,7 @@ export interface RuntimeConfig {
   model: string;
   debounceMs: number;
   maxBatchItems: number;
+  disabledReason?: string;
   error?: string;
 }
 
@@ -71,9 +73,11 @@ export function resolveMemoryRoot(
 
 export function resolveRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
   const env = input.env ?? process.env;
-  const enabled = env.PI_MEMORY_ENABLED !== "0";
+  const disabledReason = input.disabledReason?.trim() || undefined;
+  const enabled = env.PI_MEMORY_ENABLED !== "0" && !disabledReason;
   const base: RuntimeConfig = {
     enabled,
+    disabledReason,
     dryRun: envFlag(env.PI_MEMORY_DRY_RUN, "1"),
     ignore: envFlag(env.PI_MEMORY_IGNORE, "1"),
     cwd: input.cwd,
