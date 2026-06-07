@@ -148,6 +148,12 @@ describe("live pi memory worker runner", () => {
 
     expect(result.exitCode).toBe(0);
     expect(process.calls[0]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
+    expect(result.stdout).toContain("proposed paths:");
+    expect(result.stdout).toContain("- MEMORY.md");
+    expect(result.stdout).toContain("- project_dry-run-memory-write.md");
+    expect(result.stdout).toContain("--- project_dry-run-memory-write.md ---");
+    expect(result.stdout).toContain("dry-run memory write");
+    expect(result.stdout).toContain("--- MEMORY.md ---");
     expect(result.proposedPaths?.some((path) => path.endsWith("MEMORY.md"))).toBe(
       true,
     );

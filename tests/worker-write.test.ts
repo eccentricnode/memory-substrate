@@ -186,6 +186,15 @@ describe("deterministic memory worker write path", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("dry-run");
+    expect(result.stdout).toContain("proposed paths:");
+    expect(result.stdout).toContain("- MEMORY.md");
+    expect(result.stdout).toContain("- project_use-bun-for-all-build-and-test-commands.md");
+    expect(result.stdout).toContain("--- project_use-bun-for-all-build-and-test-commands.md ---");
+    expect(result.stdout).toContain("metadata:\n  type: project");
+    expect(result.stdout).toContain("--- MEMORY.md ---");
+    expect(result.stdout).toContain(
+      "- [Use Bun For All Build And Test Commands](project_use-bun-for-all-build-and-test-commands.md) — use Bun for all build and test commands",
+    );
     expect(result.proposedPaths?.some((path) => path.endsWith("MEMORY.md"))).toBe(
       true,
     );

@@ -109,6 +109,22 @@ describe("pi-dev runtime config", () => {
     expect(config.error).toContain("memory root does not exist");
   });
 
+  test("rejects a regular file as the memory root", () => {
+    const cwd = tempDir();
+    const fileRoot = join(cwd, "memory-file");
+    writeFileSync(fileRoot, "# not a directory\n");
+
+    const config = resolveRuntimeConfig({
+      cwd,
+      env: { PI_MEMORY_ROOT: fileRoot },
+      homeDir: tempDir(),
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.memoryRoot).toBeUndefined();
+    expect(config.error).toContain("memory root is not a directory");
+  });
+
   test("honors dry-run, ignore, model, debounce, and batch knobs", () => {
     const root = tempDir();
     const config = resolveRuntimeConfig({

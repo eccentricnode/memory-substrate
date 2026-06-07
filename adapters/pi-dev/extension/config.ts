@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
@@ -63,6 +63,9 @@ export function resolveMemoryRoot(
   try {
     if (!existsSync(absolute)) {
       return { ok: false, error: `memory root does not exist: ${absolute}` };
+    }
+    if (!statSync(absolute).isDirectory()) {
+      return { ok: false, error: `memory root is not a directory: ${absolute}` };
     }
     return { ok: true, path: realpathSync(absolute) };
   } catch (error) {

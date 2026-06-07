@@ -14,9 +14,10 @@
   - Completed: queue and worker audit records include bounded payload summaries and item summaries.
   - Completed: prompt, config, and flush ignore-mode transitions are audited for false-positive debugging.
   - Completed: ignore mode injects a protective no-cite/no-apply instruction while avoiding memory reads.
-  - Follow-up: dry-run writes nothing and returns `proposedPaths`, but stdout currently reports only the proposed write count rather than detailed proposed paths/content inline.
+  - Completed: dry-run stdout now prints proposed paths plus rendered topic/index content inline while writing nothing.
+  - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 17 pass, 100 expectations.
   - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 52 pass, 253 assertions across 8 files.
+  - Verified: latest green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 57 pass, 287 expectations across 8 files.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.
@@ -24,6 +25,8 @@
   - Completed: `PI_MEMORY_ENABLED=0` prevents bootstrap, reads, writes, injection, queueing, worker invocation, and validation.
   - Completed: host/substrate disabled signals are supported through `RuntimeConfig.disabledReason` and pi-dev adapter host/context/integration disabled checks before memory root resolution.
   - Completed: ignore mode prevents injection, writes, citations, and application.
+  - Completed: memory-root resolution now rejects non-directory paths before setting `memoryRoot`.
+  - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts`; exit 0, 14 pass, 46 expectations.
   - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts tests/validate-command.test.ts`; exit 0, 20 pass, 68 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 54 pass, 262 expectations.
 

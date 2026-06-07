@@ -418,6 +418,55 @@ function assertIndexWithinAdapterCaps(index: string): void {
   }
 }
 
+function displayMemoryPath(root: string, path: string): string {
+  return relative(root, path).split(sep).join("/") || "MEMORY.md";
+}
+
+function renderDryRunProposal(
+  request: MemoryWorkerRequest,
+  writePlan: Array<{
+    draft: RequiredMemoryDraft;
+    topicPath: string;
+    topicRelativePath: string;
+  }>,
+  proposedPaths: Set<string>,
+): string {
+  const indexPath = safePath(request.memoryRoot, "MEMORY.md");
+  let proposedIndex = existsSync(indexPath)
+    ? readFileSync(indexPath, "utf8")
+    : "# Memory\n";
+  for (const item of writePlan) {
+    proposedIndex = upsertIndexContent(
+      proposedIndex,
+      item.topicRelativePath,
+      item.draft,
+    );
+  }
+  assertIndexWithinAdapterCaps(proposedIndex);
+
+  const sortedPaths = [...proposedPaths]
+    .map((path) => displayMemoryPath(request.memoryRoot, path))
+    .sort((a, b) => a.localeCompare(b));
+  const topicSections = writePlan
+    .map(
+      (item) =>
+        `--- ${item.topicRelativePath} ---\n${renderTopic(item.draft).trimEnd()}`,
+    )
+    .join("\n\n");
+
+  return [
+    `dry-run: proposed ${writePlan.length} memory write(s)`,
+    "proposed paths:",
+    ...sortedPaths.map((path) => `- ${path}`),
+    "proposed topic content:",
+    topicSections,
+    "--- MEMORY.md ---",
+    proposedIndex.trimEnd(),
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+}
+
 function relativeTopicPath(root: string, topicPath: string): string {
   const rel = relative(root, topicPath).split(sep).join("/");
   if (rel.startsWith("..")) throw new Error(`refusing out-of-root topic path: ${rel}`);
@@ -692,7 +741,7 @@ export async function applyMemoryWriteDrafts(
   if (request.dryRun) {
     return {
       exitCode: 0,
-      stdout: `dry-run: proposed ${writePlan.length} memory write(s)`,
+      stdout: renderDryRunProposal(request, writePlan, proposedPaths),
       proposedPaths: [...proposedPaths],
     };
   }
