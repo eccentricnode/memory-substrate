@@ -5,6 +5,8 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  rmSync,
+  rmdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -126,6 +128,8 @@ const VALID_TYPES = new Set<MemoryType>([
 ]);
 const DESCRIPTION_CAP = 200;
 const HOOK_CAP = 150;
+const INDEX_LINE_CAP = 150;
+const INDEX_BYTE_CAP = 25 * 1024;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
 const VALIDATOR_PATH = fileURLToPath(
   new URL("../../../reference/validator.ts", import.meta.url),
@@ -337,6 +341,11 @@ interface RequiredMemoryDraft {
   relativePath: string;
 }
 
+interface FileSnapshot {
+  existed: boolean;
+  content?: string;
+}
+
 function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   if (!VALID_TYPES.has(draft.type)) {
     throw new Error(`invalid memory type: ${draft.type}`);
@@ -366,19 +375,11 @@ function renderTopic(draft: RequiredMemoryDraft): string {
   return `---\nname: ${draft.name}\ndescription: ${draft.description}\nmetadata:\n  type: ${draft.type}\n---\n\n${draft.body}\n`;
 }
 
-function ensureIndex(root: string): string {
-  const indexPath = safePath(root, "MEMORY.md");
-  if (!existsSync(indexPath)) writeFileSync(indexPath, "# Memory\n");
-  return indexPath;
-}
-
-function upsertIndexLine(
-  root: string,
+function upsertIndexContent(
+  index: string,
   topicRelativePath: string,
   draft: RequiredMemoryDraft,
 ): string {
-  const indexPath = ensureIndex(root);
-  const index = readFileSync(indexPath, "utf8");
   const line = `- [${draft.title}](${topicRelativePath}) — ${draft.hook}`;
   const lines = index.split(/\r?\n/);
   let replaced = false;
@@ -399,10 +400,56 @@ function upsertIndexLine(
   return `${nextLines.join("\n")}\n`;
 }
 
+function assertIndexWithinAdapterCaps(index: string): void {
+  const lineCount = index.split(/\r?\n/).length;
+  if (lineCount > INDEX_LINE_CAP) {
+    throw new Error(
+      `MEMORY.md would exceed ${INDEX_LINE_CAP}-line cap (${lineCount} lines)`,
+    );
+  }
+  const byteSize = Buffer.byteLength(index, "utf8");
+  if (byteSize > INDEX_BYTE_CAP) {
+    throw new Error(
+      `MEMORY.md would exceed ${INDEX_BYTE_CAP}-byte cap (${byteSize} bytes)`,
+    );
+  }
+}
+
 function relativeTopicPath(root: string, topicPath: string): string {
   const rel = relative(root, topicPath).split(sep).join("/");
   if (rel.startsWith("..")) throw new Error(`refusing out-of-root topic path: ${rel}`);
   return rel;
+}
+
+function snapshotFile(path: string): FileSnapshot {
+  if (!existsSync(path)) return { existed: false };
+  return { existed: true, content: readFileSync(path, "utf8") };
+}
+
+function restoreSnapshots(snapshots: Map<string, FileSnapshot>): void {
+  for (const [path, snapshot] of snapshots) {
+    if (snapshot.existed) {
+      writeFileSync(path, snapshot.content ?? "");
+    } else {
+      rmSync(path, { force: true });
+    }
+  }
+}
+
+function cleanupEmptyDirectories(root: string, paths: string[]): void {
+  const seen = new Set<string>();
+  for (const path of paths) {
+    let dir = dirname(path);
+    while (!seen.has(dir) && isInsideRoot(root, dir) && dir !== resolve(root)) {
+      seen.add(dir);
+      try {
+        rmdirSync(dir);
+      } catch {
+        break;
+      }
+      dir = dirname(dir);
+    }
+  }
 }
 
 function childEnv(requestEnv: RuntimeEnv): Record<string, string> {
@@ -630,7 +677,7 @@ export async function applyMemoryWriteDrafts(
     const existingPath = findExistingTopic(request.memoryRoot, draft);
     const topicRelativePath = existingPath
       ? relativeTopicPath(request.memoryRoot, existingPath)
-      : draft.relativePath;
+      : relativeTopicPath(request.memoryRoot, preferredPath);
     const topicPath = existingPath
       ? safePath(request.memoryRoot, topicRelativePath)
       : preferredPath;
@@ -647,31 +694,65 @@ export async function applyMemoryWriteDrafts(
     };
   }
 
+  const snapshots = new Map<string, FileSnapshot>();
+  const indexPath = safePath(request.memoryRoot, "MEMORY.md");
+  let nextIndex = existsSync(indexPath)
+    ? readFileSync(indexPath, "utf8")
+    : "# Memory\n";
   for (const item of writePlan) {
-    mkdirSync(dirname(item.topicPath), { recursive: true });
-    writeFileSync(item.topicPath, renderTopic(item.draft));
-    changedPaths.add(item.topicPath);
-    const nextIndex = upsertIndexLine(
-      request.memoryRoot,
+    nextIndex = upsertIndexContent(
+      nextIndex,
       item.topicRelativePath,
       item.draft,
     );
-    writeFileSync(safePath(request.memoryRoot, "MEMORY.md"), nextIndex);
-    changedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
+  }
+  assertIndexWithinAdapterCaps(nextIndex);
+
+  snapshots.set(indexPath, snapshotFile(indexPath));
+  for (const item of writePlan) {
+    snapshots.set(item.topicPath, snapshotFile(item.topicPath));
   }
 
-  const validator = await (options.validate ?? runReferenceValidator)(
-    request.memoryRoot,
-  );
-  const failedValidation = validator && validator.exitCode !== 0;
-  return {
-    exitCode: failedValidation ? 1 : 0,
-    stdout: `wrote ${writePlan.length} memory write(s)`,
-    stderr: failedValidation ? "validator failed after memory write" : undefined,
-    changedPaths: [...changedPaths],
-    proposedPaths: [...proposedPaths],
-    validator,
-  };
+  try {
+    for (const item of writePlan) {
+      mkdirSync(dirname(item.topicPath), { recursive: true });
+      writeFileSync(item.topicPath, renderTopic(item.draft));
+      changedPaths.add(item.topicPath);
+    }
+    writeFileSync(indexPath, nextIndex);
+    changedPaths.add(indexPath);
+
+    const validator = await (options.validate ?? runReferenceValidator)(
+      request.memoryRoot,
+    );
+    const failedValidation = validator && validator.exitCode !== 0;
+    if (failedValidation) {
+      restoreSnapshots(snapshots);
+      cleanupEmptyDirectories(
+        request.memoryRoot,
+        writePlan.map((item) => item.topicPath),
+      );
+    }
+    return {
+      exitCode: failedValidation ? 1 : 0,
+      stdout: failedValidation
+        ? `rolled back ${writePlan.length} memory write(s) after validator failure`
+        : `wrote ${writePlan.length} memory write(s)`,
+      stderr: failedValidation
+        ? "validator failed after memory write; rolled back attempted changes"
+        : undefined,
+      changedPaths: failedValidation ? [] : [...changedPaths],
+      proposedPaths: [...proposedPaths],
+      validator,
+    };
+  } catch (error) {
+    restoreSnapshots(snapshots);
+    cleanupEmptyDirectories(
+      request.memoryRoot,
+      writePlan.map((item) => item.topicPath),
+    );
+    throw error;
+  }
 }
 
 export function createDeterministicMemoryWorkerRunner(

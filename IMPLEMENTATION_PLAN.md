@@ -7,9 +7,12 @@
   - Completed: status, validate, and flush commands are present.
   - Completed: specs/04 and specs/05 wording tensions are resolved.
   - Completed: failed/refused flushes report clear failed/refused status, retain queued candidates, and are covered by lifecycle plus `memory-flush` command regression tests.
-  - Unresolved review findings: capture compaction payloads for audit/debug, audit ignore-mode false positives, make two-step write application transactional or rollback-safe after validation failures, enforce `MEMORY.md` size/line caps before write upserts mutate files, and canonicalize in-root `relativePath` values before preserving index pointers.
-  - Verified: focused command tests passed: `bun test tests/validate-command.test.ts`; exit 0, 7 tests, 24 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 44 tests, 187 expectations/assertions across 7 files.
+  - Completed: worker canonicalizes new in-root topic paths before indexing.
+  - Completed: worker preflights `MEMORY.md` line and byte caps before mutating files.
+  - Completed: post-write validation failure rolls back affected topic/index files plus empty created directories.
+  - Unresolved review findings: capture compaction payloads for audit/debug and audit ignore-mode false positives.
+  - Verified: focused worker write tests passed: `bun test tests/worker-write.test.ts`; exit 0, 12 tests, 55 expectations.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 50 tests, 233 expectations across 8 files.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

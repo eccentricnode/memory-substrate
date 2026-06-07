@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -228,9 +230,94 @@ describe("deterministic memory worker write path", () => {
     expect(readFileSync(outsideFile, "utf8")).toBe("outside\n");
   });
 
-  test("validator failure marks the worker run failed after the two-step write", async () => {
+  test("canonicalizes in-root relative paths before indexing", async () => {
     const root = memoryRoot();
+    mkdirSync(join(root, "nested"));
     const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "canonical-topic",
+          description: "canonical topic",
+          body: "canonical topic\n\n**Why:** Keeps index pointers stable.\n\n**How to apply:** Use the canonical path.",
+          relativePath: "nested/../project_canonical-topic.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is canonical."));
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(root, "project_canonical-topic.md"))).toBe(true);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+      "](project_canonical-topic.md) — canonical topic",
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).not.toContain(
+      "nested/../project_canonical-topic.md",
+    );
+  });
+
+  test("refuses index line cap overflow before writing topic files", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      `${Array.from({ length: 149 }, (_, i) =>
+        i === 0 ? "# Memory" : `## Existing ${i}`,
+      ).join("\n")}\n`,
+    );
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "would exceed line cap",
+          body: "would exceed line cap",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is line cap."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("MEMORY.md would exceed 150-line cap");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("refuses index byte cap overflow before writing topic files", async () => {
+    const root = memoryRoot();
+    writeFileSync(join(root, "MEMORY.md"), `# Memory\n\n${"x".repeat(25 * 1024)}\n`);
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "would exceed byte cap",
+          body: "would exceed byte cap",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is byte cap."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("MEMORY.md would exceed 25600-byte cap");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("validator failure rolls back the attempted two-step write", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "invalid after write",
+          body: "invalid after write",
+          relativePath: "nested/project_invalid-after-write.md",
+        },
+      ],
       validate: async () => ({
         exitCode: 1,
         stdout: "validator found errors",
@@ -243,9 +330,59 @@ describe("deterministic memory worker write path", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("validator failed");
-    expect(result.changedPaths?.some((path) => path.endsWith("MEMORY.md"))).toBe(
-      true,
-    );
+    expect(result.stderr).toContain("rolled back");
+    expect(result.stdout).toContain("rolled back");
+    expect(result.changedPaths).toEqual([]);
+    expect(result.proposedPaths?.some((path) => path.endsWith("MEMORY.md"))).toBe(true);
     expect(result.validator?.exitCode).toBe(1);
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+    expect(existsSync(join(root, "nested"))).toBe(false);
+  });
+
+  test("validator failure restores an existing topic and index entry", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "project_existing-rule.md"),
+      `---
+name: existing-rule
+description: Existing rule
+metadata:
+  type: project
+---
+
+Existing rule.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Existing rule](project_existing-rule.md) — Existing rule\n",
+    );
+    const beforeTopic = readFileSync(join(root, "project_existing-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "existing-rule",
+          description: "Updated rule",
+          body: "Updated rule\n\n**Why:** Test rollback.\n\n**How to apply:** Keep the old value when validation fails.",
+          hook: "Updated rule",
+          relativePath: "project_existing-rule.md",
+        },
+      ],
+      validate: async () => ({
+        exitCode: 1,
+        stderr: "validator found errors",
+      }),
+    });
+
+    const result = await worker.run(request(root, "The durable decision is update."));
+
+    expect(result.exitCode).toBe(1);
+    expect(readFileSync(join(root, "project_existing-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
   });
 });
