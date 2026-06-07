@@ -197,6 +197,31 @@ describe("pi-dev memory command surface", () => {
     expect(ctx.ui.statuses.at(-1)?.value).toContain(root);
   });
 
+  test("memory-flush command reports worker failures and retains queued candidates", async () => {
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    delete process.env.PI_MEMORY_ENABLED;
+    const worker = recordingWorker({
+      exitCode: 1,
+      stderr: "worker model unavailable",
+    });
+    const { handlers, commands } = fakePi({ worker });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_end")?.({
+      messages: ["The durable decision is to test failed flush retention."],
+    }, ctx);
+    await commands.get("memory-flush")?.handler("", ctx);
+
+    const notification = ctx.ui.notifications.at(-1);
+    expect(notification?.level).toBe("error");
+    expect(notification?.message).toContain("memory flush failed");
+    expect(notification?.message).toContain("worker model unavailable");
+    expect(notification?.message).toContain("1 queued memory candidate(s) retained");
+    expect(worker.requests).toHaveLength(1);
+  });
+
   test("memory-flush command obeys disabled mode and does not require a root", async () => {
     process.env.PI_MEMORY_ENABLED = "0";
     process.env.PI_MEMORY_ROOT = "/missing-memory-root";

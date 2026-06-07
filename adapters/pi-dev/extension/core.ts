@@ -85,7 +85,14 @@ export interface ValidateMemoryResult {
 }
 
 export interface FlushMemoryResult {
-  status: "flushed" | "idle" | "disabled" | "ignored" | "unavailable";
+  status:
+    | "flushed"
+    | "idle"
+    | "disabled"
+    | "ignored"
+    | "unavailable"
+    | "failed"
+    | "refused";
   processedItems: number;
   remainingItems: number;
   error?: string;
@@ -97,6 +104,12 @@ export interface FlushMemoryOptions {
 
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
+
+interface WorkerBatchOutcome {
+  status: WorkerRunStatus;
+  itemCount: number;
+  error?: string;
+}
 
 function defaultScheduler(): MemoryScheduler {
   return {
@@ -217,12 +230,26 @@ export class MemoryExtensionCore {
     }
 
     let processedItems = 0;
+    let stoppedBy: WorkerBatchOutcome | undefined;
     while (this.queue.length > 0 && !this.processing) {
-      const nextItemCount = Math.min(this.queue.length, this.config.maxBatchItems);
-      await this.processNextBatch(reason);
-      processedItems += nextItemCount;
+      const outcome = await this.processNextBatch(reason);
+      if (!outcome) break;
+      if (outcome.status !== "completed") {
+        stoppedBy = outcome;
+        break;
+      }
+      processedItems += outcome.itemCount;
       if (!options.drain && reason !== "session_before_compact") break;
       this.clearTimer();
+    }
+
+    if (stoppedBy) {
+      return {
+        status: stoppedBy.status === "refused" ? "refused" : "failed",
+        processedItems,
+        remainingItems: this.queue.length,
+        error: stoppedBy.error,
+      };
     }
 
     return {
@@ -313,30 +340,43 @@ export class MemoryExtensionCore {
     this.timer = undefined;
   }
 
-  private async processNextBatch(reason: string): Promise<void> {
+  private async processNextBatch(
+    reason: string,
+  ): Promise<WorkerBatchOutcome | undefined> {
     const memoryRoot = this.config.memoryRoot;
-    if (!memoryRoot) return;
-    const items = this.queue.splice(0, this.config.maxBatchItems);
-    if (items.length === 0) return;
+    if (!memoryRoot) return undefined;
+    const items = this.queue.slice(0, this.config.maxBatchItems);
+    if (items.length === 0) return undefined;
 
     this.processing = true;
-    this.processingPromise = this.runWorkerBatch(reason, items, memoryRoot).finally(
-      () => {
+    let outcome: WorkerBatchOutcome | undefined;
+    this.processingPromise = this.runWorkerBatch(reason, items, memoryRoot)
+      .then((result) => {
+        outcome = result;
+        if (result.status === "completed") {
+          this.queue.splice(0, items.length);
+        }
+      })
+      .finally(() => {
         this.processing = false;
         this.processingPromise = undefined;
-        if (this.queue.length > 0) this.scheduleFlush();
-      },
-    );
+        if (outcome?.status === "completed" && this.queue.length > 0) {
+          this.scheduleFlush();
+        }
+      });
     await this.processingPromise;
+    return outcome;
   }
 
   private async runWorkerBatch(
     reason: string,
     items: MemoryBatchItem[],
     memoryRoot: string,
-  ): Promise<void> {
+  ): Promise<WorkerBatchOutcome> {
     const batchId = `batch-${++this.batchSequence}`;
     if (!this.worker?.supportsEnv) {
+      const error =
+        "worker launch refused: selected pi.dev exec surface cannot prove PI_MEMORY_ENABLED=0 reaches the child process";
       this.recordWorkerAudit({
         batchId,
         reason,
@@ -346,11 +386,10 @@ export class MemoryExtensionCore {
         status: "refused",
         changedPaths: [],
         proposedPaths: [],
-        error:
-          "worker launch refused: selected pi.dev exec surface cannot prove PI_MEMORY_ENABLED=0 reaches the child process",
+        error,
         outputTail: "",
       });
-      return;
+      return { status: "refused", itemCount: items.length, error };
     }
 
     const request: MemoryWorkerRequest = {
@@ -370,7 +409,16 @@ export class MemoryExtensionCore {
     try {
       const result = await this.worker.run(request);
       this.recordWorkerResult(batchId, reason, items.length, result);
+      if (result.exitCode === 0) {
+        return { status: "completed", itemCount: items.length };
+      }
+      return {
+        status: "failed",
+        itemCount: items.length,
+        error: result.stderr || "worker failed",
+      };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       this.recordWorkerAudit({
         batchId,
         reason,
@@ -380,9 +428,10 @@ export class MemoryExtensionCore {
         status: "failed",
         changedPaths: [],
         proposedPaths: [],
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
         outputTail: "",
       });
+      return { status: "failed", itemCount: items.length, error: message };
     }
   }
 

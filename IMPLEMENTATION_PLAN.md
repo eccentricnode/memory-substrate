@@ -6,10 +6,10 @@
   - Completed: root-confined applicator remains the write authority and enforces two-step saves: topic file plus `MEMORY.md` pointer.
   - Completed: status, validate, and flush commands are present.
   - Completed: specs/04 and specs/05 wording tensions are resolved.
-  - Unresolved review findings: flush must report worker failures/refusals clearly and retain queued changes when a flush fails or is refused.
-  - Unresolved review findings: capture compaction payloads for audit/debug, and audit ignore-mode false positives.
+  - Completed: failed/refused flushes report clear failed/refused status, retain queued candidates, and are covered by lifecycle plus `memory-flush` command regression tests.
+  - Unresolved review findings: capture compaction payloads for audit/debug, audit ignore-mode false positives, make two-step write application transactional or rollback-safe after validation failures, enforce `MEMORY.md` size/line caps before write upserts mutate files, and canonicalize in-root `relativePath` values before preserving index pointers.
   - Verified: focused command tests passed: `bun test tests/validate-command.test.ts`; exit 0, 7 tests, 24 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 42 tests, 171 expectations/assertions across 7 files.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 44 tests, 187 expectations/assertions across 7 files.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

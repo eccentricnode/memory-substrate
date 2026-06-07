@@ -98,8 +98,19 @@ function validationMessage(result: ValidateMemoryResult): string {
 
 function flushLevel(result: FlushMemoryResult): "info" | "warn" | "error" | "success" {
   if (result.status === "flushed") return "success";
-  if (result.status === "unavailable") return "error";
+  if (
+    result.status === "unavailable" ||
+    result.status === "failed" ||
+    result.status === "refused"
+  ) {
+    return "error";
+  }
   return "info";
+}
+
+function retainedQueueSuffix(result: FlushMemoryResult): string {
+  if (result.remainingItems === 0) return "";
+  return `; ${result.remainingItems} queued memory candidate(s) retained`;
 }
 
 function flushMessage(result: FlushMemoryResult): string {
@@ -107,6 +118,12 @@ function flushMessage(result: FlushMemoryResult): string {
   if (result.status === "ignored") return "memory flush skipped: ignored";
   if (result.status === "unavailable") {
     return `memory flush unavailable: ${result.error ?? "memory root unavailable"}`;
+  }
+  if (result.status === "refused") {
+    return `memory flush refused: ${result.error ?? "worker refused"}${retainedQueueSuffix(result)}`;
+  }
+  if (result.status === "failed") {
+    return `memory flush failed: ${result.error ?? "worker failed"}${retainedQueueSuffix(result)}`;
   }
   if (result.status === "idle") {
     return "memory flush complete: no queued memory candidates";

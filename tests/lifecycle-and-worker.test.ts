@@ -230,12 +230,44 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     });
 
     await core.handleAgentEnd({ messages: ["remember this"] });
-    await core.flush();
+    const result = await core.flush();
 
     const runRecord = state.entries.find(
       (entry) => entry.type === "memory-substrate-worker-run",
     )?.data as { status?: string; error?: string } | undefined;
+    expect(result.status).toBe("refused");
+    expect(result.processedItems).toBe(0);
+    expect(result.remainingItems).toBe(1);
+    expect(core.pendingBatchItems).toBe(1);
     expect(runRecord?.status).toBe("refused");
     expect(runRecord?.error).toContain("PI_MEMORY_ENABLED=0");
+  });
+
+  test("failed worker run keeps the batch queued for a later flush", async () => {
+    const state = recordingState();
+    const worker = recordingWorker({
+      exitCode: 1,
+      stderr: "model unavailable",
+    });
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: memoryRoot() },
+      state,
+      worker,
+    });
+
+    await core.handleAgentEnd({ messages: ["remember this after worker recovery"] });
+    const result = await core.flush();
+
+    const runRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as { status?: string; error?: string } | undefined;
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("model unavailable");
+    expect(result.processedItems).toBe(0);
+    expect(result.remainingItems).toBe(1);
+    expect(core.pendingBatchItems).toBe(1);
+    expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.error).toBe("model unavailable");
   });
 });
