@@ -1,0 +1,7 @@
+# Ralph per-run capture (timestamped, machine-local)
+scripts/ralph/runs/
+node_modules/
+# Pi memory-substrate extension runtime scratch (transient batches, dry-run output)
+.pi/memory-substrate/inbox/
+**/memory-substrate/inbox/
+*.dryrun.md

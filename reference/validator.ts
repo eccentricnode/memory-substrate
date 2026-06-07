@@ -45,7 +45,10 @@ function parseFrontmatter(content: string): {
     }
     const m = raw.match(/^(\s*)([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/);
     if (!m) continue;
-    const [, indent, key, value] = m;
+    const indent = m[1] ?? "";
+    const key = m[2];
+    const value = m[3] ?? "";
+    if (!key) continue;
     const isIndented = indent.length > 0;
     // Indented lines go into the most recently opened block (metadata).
     // Non-indented lines reset block context unless they're empty.
@@ -139,7 +142,9 @@ function checkIndex(root: string) {
     const lineNo = i + 1;
     const m = line.match(entryRe);
     if (!m) return;
-    const [, , target, tail] = m;
+    const target = m[2];
+    const tail = m[3] ?? "";
+    if (!target) return;
     entries.set(target, lineNo);
     referenced.add(target);
     if (line.length > HOOK_LINE_CAP)
