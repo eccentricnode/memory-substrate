@@ -63,6 +63,32 @@ export interface DeterministicMemoryWorkerOptions {
   validate?: (memoryRoot: string) => Promise<MemoryValidationResult>;
 }
 
+export interface LivePiProcessOptions {
+  cwd: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+}
+
+export interface LivePiProcessResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+  killed: boolean;
+}
+
+export type LivePiProcessExecutor = (
+  command: string,
+  args: string[],
+  options: LivePiProcessOptions,
+) => Promise<LivePiProcessResult>;
+
+export interface LivePiMemoryWorkerOptions {
+  command?: string;
+  timeoutMs?: number;
+  process?: LivePiProcessExecutor;
+  validate?: (memoryRoot: string) => Promise<MemoryValidationResult>;
+}
+
 export interface MemoryValidationResult {
   exitCode: number;
   stdout?: string;
@@ -100,6 +126,7 @@ const VALID_TYPES = new Set<MemoryType>([
 ]);
 const DESCRIPTION_CAP = 200;
 const HOOK_CAP = 150;
+const LIVE_WORKER_TIMEOUT_MS = 120_000;
 const VALIDATOR_PATH = fileURLToPath(
   new URL("../../../reference/validator.ts", import.meta.url),
 );
@@ -375,6 +402,180 @@ function relativeTopicPath(root: string, topicPath: string): string {
   return rel;
 }
 
+function childEnv(requestEnv: RuntimeEnv): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  for (const [key, value] of Object.entries(requestEnv)) {
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+function defaultLivePiProcessExecutor(
+  command: string,
+  args: string[],
+  options: LivePiProcessOptions,
+): Promise<LivePiProcessResult> {
+  return new Promise((resolveProcess) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, options.timeoutMs);
+
+    const finish = (result: LivePiProcessResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveProcess(result);
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      finish({ code: 2, stdout, stderr: error.message, killed: timedOut });
+    });
+    child.on("close", (code, signal) => {
+      const timeoutMessage = timedOut
+        ? `memory worker timed out after ${options.timeoutMs}ms`
+        : "";
+      finish({
+        code: code ?? 1,
+        stdout,
+        stderr: [stderr.trim(), timeoutMessage].filter(Boolean).join("\n"),
+        killed: timedOut || signal !== null,
+      });
+    });
+  });
+}
+
+function existingMemorySnapshot(root: string): string {
+  let index = "";
+  try {
+    index = readFileSync(safePath(root, "MEMORY.md"), "utf8");
+  } catch {
+    index = "";
+  }
+
+  const topics = topicFiles(root)
+    .map((path) => {
+      const content = readFileSync(path, "utf8");
+      const frontmatter = parseTopicFrontmatter(content);
+      return {
+        relativePath: relativeTopicPath(root, path),
+        name: frontmatter.name,
+        description: frontmatter.description,
+        type: frontmatter.type,
+      };
+    })
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+  return JSON.stringify({ index, topics }, null, 2);
+}
+
+function liveWorkerPrompt(request: MemoryWorkerRequest): string {
+  return `You are the memory-substrate pi.dev background worker.
+
+Decide whether the candidate batch contains durable memory per SPEC section 3.
+Default to no write. Do not save progress chatter, derivable repo facts, git history,
+debugging recipes, or ephemeral session state. If an existing memory covers the same
+subject, return a draft with that existing relativePath so the host updates it.
+
+You do not have file tools in this worker. Return structured write drafts only; the
+extension will perform the confined two-step save and validator run.
+
+Output exactly one JSON object, with no markdown fences and no commentary:
+{"drafts":[{"type":"project","description":"one line <=200 chars","body":"markdown body","hook":"index hook <=150 chars","title":"Index title","name":"kebab-case-name","relativePath":"project_kebab-case-name.md"}]}
+
+Rules:
+- drafts must be empty unless the batch contains a durable trigger.
+- type must be one of user, feedback, project, reference.
+- feedback and project bodies must start with the fact, then include **Why:** and **How to apply:** lines.
+- relativePath must be inside the memory root and must not be MEMORY.md.
+- If no memory should be written, output {"drafts":[]}.
+
+Memory root: ${request.memoryRoot}
+Dry run: ${request.dryRun ? "yes" : "no"}
+
+Existing memory snapshot:
+${existingMemorySnapshot(request.memoryRoot)}
+
+Candidate batch:
+${JSON.stringify(request.items, null, 2)}
+`;
+}
+
+function extractJsonObject(stdout: string): unknown {
+  const trimmed = stdout.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+    if (fenced) return JSON.parse(fenced);
+
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1));
+    }
+    throw new Error("live worker did not return JSON");
+  }
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
+  const payload = extractJsonObject(stdout);
+  if (!payload || typeof payload !== "object" || !("drafts" in payload)) {
+    throw new Error("live worker JSON missing drafts array");
+  }
+  const drafts = (payload as { drafts: unknown }).drafts;
+  if (!Array.isArray(drafts)) throw new Error("live worker drafts must be an array");
+
+  return drafts.map((draft, index) => {
+    if (!draft || typeof draft !== "object") {
+      throw new Error(`live worker draft ${index} is not an object`);
+    }
+    const record = draft as Record<string, unknown>;
+    const type = asString(record.type);
+    const description = asString(record.description);
+    const body = asString(record.body);
+    if (!VALID_TYPES.has(type as MemoryType)) {
+      throw new Error(`live worker draft ${index} has invalid type`);
+    }
+    if (!description || !body) {
+      throw new Error(`live worker draft ${index} missing description or body`);
+    }
+    return {
+      type: type as MemoryType,
+      description,
+      body,
+      hook: asString(record.hook),
+      title: asString(record.title),
+      name: asString(record.name),
+      relativePath: asString(record.relativePath),
+    };
+  });
+}
+
 export async function runReferenceValidator(
   memoryRoot: string,
 ): Promise<MemoryValidationResult> {
@@ -482,6 +683,66 @@ export function createDeterministicMemoryWorkerRunner(
       } catch (error) {
         return {
           exitCode: 1,
+          stderr: error instanceof Error ? error.message : String(error),
+          changedPaths: [],
+          proposedPaths: [],
+        };
+      }
+    },
+  };
+}
+
+export function createLivePiMemoryWorkerRunner(
+  options: LivePiMemoryWorkerOptions = {},
+): MemoryWorkerRunner {
+  const command = options.command ?? "pi";
+  const timeoutMs = options.timeoutMs ?? LIVE_WORKER_TIMEOUT_MS;
+  const execProcess = options.process ?? defaultLivePiProcessExecutor;
+
+  return {
+    supportsEnv: true,
+    async run(request) {
+      const args = [
+        "--print",
+        "--no-extensions",
+        "--no-context-files",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-session",
+        "--no-tools",
+        "--model",
+        request.model,
+        liveWorkerPrompt(request),
+      ];
+
+      const processResult = await execProcess(command, args, {
+        cwd: request.memoryRoot,
+        env: childEnv(request.env),
+        timeoutMs,
+      });
+      if (processResult.code !== 0) {
+        return {
+          exitCode: processResult.code,
+          stdout: processResult.stdout,
+          stderr: processResult.stderr || "live pi memory worker failed",
+          changedPaths: [],
+          proposedPaths: [],
+        };
+      }
+
+      try {
+        const drafts = parseLiveWorkerDrafts(processResult.stdout);
+        const result = await applyMemoryWriteDrafts(request, drafts, {
+          validate: options.validate,
+        });
+        return {
+          ...result,
+          stdout: [processResult.stdout.trim(), result.stdout].filter(Boolean).join("\n"),
+        };
+      } catch (error) {
+        return {
+          exitCode: 1,
+          stdout: processResult.stdout,
           stderr: error instanceof Error ? error.message : String(error),
           changedPaths: [],
           proposedPaths: [],

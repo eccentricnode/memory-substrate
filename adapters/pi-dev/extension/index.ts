@@ -4,7 +4,7 @@ import type {
   ValidateMemoryResult,
 } from "./core.ts";
 import { MemoryExtensionCore as Core } from "./core.ts";
-import { unsupportedPiExecWorkerRunner } from "./worker.ts";
+import { createLivePiMemoryWorkerRunner } from "./worker.ts";
 
 interface PiEventApi {
   on(event: "session_start", handler: (event: unknown, ctx: PiContext) => void): void;
@@ -47,7 +47,7 @@ function createCore(ctx: PiContext, pi: PiEventApi): MemoryExtensionCore {
     state: pi.appendEntry
       ? { appendEntry: (customType, data) => pi.appendEntry?.(customType, data) }
       : undefined,
-    worker: unsupportedPiExecWorkerRunner,
+    worker: createLivePiMemoryWorkerRunner(),
   });
 }
 

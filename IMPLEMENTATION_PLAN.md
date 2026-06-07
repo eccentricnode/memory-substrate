@@ -1,25 +1,11 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P0 — Current increment: forced-write lifecycle batching.
-  - Status: bounded offline write/validation slice complete.
-  - Finding: worker orchestration and deterministic offline write application now cover the forced-write contract short of live pi subprocess launch.
-  - Completed: `package.json` and `tsconfig.json` added for the Bun-compatible TypeScript scaffold.
-  - Completed: `adapters/pi-dev/extension/` now has config, core, injection, and index modules.
-  - Completed: offline deterministic coverage added for config/modes, memory injection, and forced-write lifecycle batching.
-  - Completed: `agent_end` and `session_before_compact` events are queued through lifecycle batching.
-  - Completed: debounce and max-batch behavior are implemented and covered by offline tests.
-  - Completed: worker execution is routed through an injected worker-runner contract so tests do not call a real model.
-  - Completed: worker requests carry the recursion-guard env requirement (`PI_MEMORY_ENABLED=0`).
-  - Completed: unsupported `pi.exec` env-forwarding path fails closed instead of spawning unsafely.
-  - Completed: audit entries record queued batches and worker-run results outside LLM context.
-  - Completed: deterministic offline worker write decisions are default-deny for chatter and produce bounded memory writes for durable facts.
-  - Completed: root-confined two-step saves write/update the topic file plus exactly one `MEMORY.md` pointer.
-  - Completed: dry-run reports proposed paths and writes nothing.
-  - Completed: repeat facts dedupe/update existing memory instead of duplicating pointers.
-  - Completed: symlink and out-of-root write attempts are refused before mutation.
-  - Completed: after-write validation invokes `reference/validator.ts`; audit coverage records validator results.
-  - Completed: pi.dev `/memory-validate` command surface reuses the exported `runReferenceValidator` from `adapters/pi-dev/extension/worker.ts`, obeys disabled mode, reports unavailable roots, and has offline tests.
-  - Verified: `bunx tsc --noEmit && bun test` passed with 28 tests.
+- P0 — Current increment: live forced-write worker.
+  - Status: completed and verified.
+  - Finding: `pi.exec` remains unsafe for live workers because it cannot forward env, so it cannot prove the recursion guard reaches the child.
+  - Design: live runner uses Node `spawn` to run `pi -p` with `PI_MEMORY_ENABLED=0`, `--no-extensions`, `--no-context-files`, `--no-skills`, `--no-prompt-templates`, `--no-session`, and `--no-tools`.
+  - Design: live model returns structured memory drafts only; the existing root-confined applicator remains the single write authority and performs the two-step topic file plus `MEMORY.md` save.
+  - Verified: `bunx tsc --noEmit && bun test` passed via exactly one test subagent; exit 0, 32 tests passed, 0 failed, 124 expectations.
   - Constraints: no real model calls; no global pi extension install; use exactly one test runner for the green gate.
 
 - P0 — Config and mode gates.
@@ -27,7 +13,6 @@
   - Cover: enabled/disabled, ignore, dry-run, memory root, model default, debounce/max batch defaults.
   - Required: `PI_MEMORY_ENABLED=0` means no bootstrap, reads, writes, injection, queueing, worker invocation, or validation.
   - Required: ignore mode means no injection, no writes, and no citations/application.
-  - Remaining P0: live env-capable worker implementation.
 
 - P0 — Memory injection.
   - Status: first slice implemented and test-covered.
@@ -36,22 +21,12 @@
   - Modes: inject nothing in disabled or ignore mode.
 
 - P0 — Host safety boundaries to preserve while scaffolding.
-  - Status: preserved for the bounded offline write/validation slice.
+  - Status: preserved through the verified live-worker implementation.
   - No global install into `~/.pi/agent/extensions/`.
-  - Completed: queued worker requests include `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding fails closed.
-  - Completed: deterministic worker writes are confined to the resolved memory root and refuse symlink/out-of-root escapes.
-  - Completed: forced writes are two-step: topic file plus `MEMORY.md` pointer.
-  - Remaining: implement a live env-capable worker launcher without violating the recursion guard.
+  - Preserve: child workers must receive `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding must keep failing closed.
+  - Preserve: all writes stay confined to the resolved memory root and refuse symlink/out-of-root escapes.
+  - Preserve: forced writes are two-step: topic file plus `MEMORY.md` pointer.
   - Default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
-
-- P0 — Remaining forced-write implementation.
-  - Status: bounded offline write/validation path and validate command surface complete; live worker execution pending.
-  - Completed: lifecycle batching collects `agent_end` and `session_before_compact` events.
-  - Completed: debounce/max-batch behavior, injected worker-runner contract, recursion-guard env in worker requests, fail-closed unsupported `pi.exec` env path, and audit entries are implemented and covered by offline tests.
-  - Completed: deterministic offline write decisions, two-step topic/index saves, dry-run proposed paths/no writes, dedupe/update behavior, symlink/out-of-root refusal, and validator-after-write/audit coverage are implemented.
-  - Completed: `/memory-validate` reuses exported `runReferenceValidator`, obeys disabled mode, reports unavailable roots, and is covered by offline tests.
-  - Verified: `bunx tsc --noEmit && bun test` passed with 28 tests.
-  - Remaining: implement live env-capable worker execution with the `claude-haiku-4-5` default model and `PI_MEMORY_MODEL` override.
 
 - P1 — Harden the reference validator to match SPEC.
   - Status: pending for remaining SPEC gaps.
@@ -66,4 +41,4 @@
 
 - P2 — Later extension capabilities.
   - Status: deferred.
-  - Add live forced-write worker execution, status reporting, flush command, and SPEC §7 compactor/migrator reconciliation after the current increment is green.
+  - Add status reporting, flush command, and SPEC §7 compactor/migrator reconciliation after the current increment is green.
