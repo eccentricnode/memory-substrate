@@ -86,12 +86,6 @@ function parseFrontmatter(content: string): {
     const target = isIndented && inMetadata ? metadata : data;
     target[key] = value.replace(/^["']|["']$/g, "");
   }
-  // Spec normalization: flat `type:` at top level is accepted as `metadata.type`.
-  // This handles the historical PAI auto-memory shape where many files have
-  // `type:` at root instead of nested under `metadata:`.
-  if (data.type && !metadata.type) {
-    metadata.type = data.type;
-  }
   if (Object.keys(metadata).length > 0) data.metadata = metadata;
   return { ok: true, data };
 }
@@ -163,6 +157,60 @@ function findWikiLinks(content: string): string[] {
     .filter((name): name is string => Boolean(name));
 }
 
+interface MarkdownLink {
+  target: string;
+  line: number;
+}
+
+function lineForOffset(content: string, offset: number): number {
+  return content.slice(0, offset).split("\n").length;
+}
+
+function findMarkdownLinks(content: string): MarkdownLink[] {
+  return [...content.matchAll(/!?\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)]
+    .map((match) => ({
+      target: match[1] ?? "",
+      line: lineForOffset(content, match.index ?? 0),
+    }))
+    .filter((link) => link.target.length > 0);
+}
+
+function isExternalLink(target: string): boolean {
+  return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(target);
+}
+
+function stripMarkdownFragment(target: string): string {
+  return target.split("#", 1)[0] ?? target;
+}
+
+function checkLocalMarkdownLink(
+  ctx: ValidationContext,
+  sourceRel: string,
+  sourceDir: string,
+  target: string,
+  line: number,
+): void {
+  if (isExternalLink(target)) return;
+  const pathOnly = stripMarkdownFragment(target);
+  if (pathOnly.trim() === "" || pathOnly.includes("\0") || isAbsolute(pathOnly)) {
+    push(ctx, "error", sourceRel, `link escapes memory root: ${target}`, line);
+    return;
+  }
+  const resolved = resolve(sourceDir, pathOnly);
+  if (!isInsideRoot(ctx.realRoot, resolved)) {
+    push(ctx, "error", sourceRel, `link escapes memory root: ${target}`, line);
+    return;
+  }
+  if (!existsSync(resolved)) {
+    push(ctx, "error", sourceRel, `broken link: ${target}`, line);
+    return;
+  }
+  const realTarget = realpathSync(resolved);
+  if (!isInsideRoot(ctx.realRoot, realTarget)) {
+    push(ctx, "error", sourceRel, `link escapes memory root: ${target}`, line);
+  }
+}
+
 interface TopicCheckResult {
   path: string;
   name?: string;
@@ -173,6 +221,7 @@ function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult 
   const rel = relative(ctx.root, path);
   const content = readFileSync(path, "utf8");
   const wikiLinks = findWikiLinks(content);
+  const markdownLinks = findMarkdownLinks(content);
   const fm = parseFrontmatter(content);
   if (!fm.ok) {
     push(ctx, "error", rel, `frontmatter: ${fm.error}`);
@@ -215,6 +264,9 @@ function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult 
       );
     }
   }
+  if (typeof data.type === "string") {
+    push(ctx, "error", rel, "frontmatter `type` must be nested under `metadata.type`");
+  }
   if (!md || !md.type) {
     push(ctx, "error", rel, "frontmatter missing `metadata.type`");
   } else if (!VALID_TYPES.includes(md.type as MemoryType)) {
@@ -224,6 +276,9 @@ function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult 
       rel,
       `metadata.type "${md.type}" not in [${VALID_TYPES.join(", ")}]`,
     );
+  }
+  for (const link of markdownLinks) {
+    checkLocalMarkdownLink(ctx, rel, resolve(path, ".."), link.target, link.line);
   }
 
   return { path, name, wikiLinks };
@@ -267,7 +322,8 @@ function checkIndex(ctx: ValidationContext) {
 
   const entries = new Map<string, number>();
   const referenced = new Set<string>();
-  const entryRe = /^- \[([^\]]+)\]\(([^)]+)\)(.*)$/;
+  const linkEntryRe = /^- \[([^\]]+)\]\(([^)]+)\)(.*)$/;
+  const canonicalEntryRe = /^- \[([^\]]+)\]\(([^)]+)\) — (.+)$/;
   lines.forEach((line, i) => {
     const lineNo = i + 1;
     const trimmed = line.trim();
@@ -280,16 +336,20 @@ function checkIndex(ctx: ValidationContext) {
     ) {
       return;
     }
-    const m = line.match(entryRe);
-    if (!m) {
+    const linkMatch = line.match(linkEntryRe);
+    if (!linkMatch) {
       push(ctx, "error", "MEMORY.md", "invalid index entry line", lineNo);
       return;
     }
-    const target = m[2];
-    const tail = m[3] ?? "";
+    const canonicalMatch = line.match(canonicalEntryRe);
+    const target = linkMatch[2];
     if (!target) return;
-    entries.set(target, lineNo);
-    referenced.add(target);
+    if (!canonicalMatch) {
+      push(ctx, "error", "MEMORY.md", "invalid index entry line", lineNo);
+    } else {
+      entries.set(target, lineNo);
+      referenced.add(target);
+    }
     if (line.length > HOOK_LINE_CAP)
       push(
         ctx,
@@ -309,16 +369,26 @@ function checkIndex(ctx: ValidationContext) {
       const realTarget = realpathSync(targetPath);
       if (!isInsideRoot(ctx.realRoot, realTarget)) {
         push(ctx, "error", "MEMORY.md", `link escapes memory root: ${target}`, lineNo);
+      } else if (basename(targetPath) === "MEMORY.md") {
+        push(
+          ctx,
+          "error",
+          "MEMORY.md",
+          `index target must reference a topic file: ${target}`,
+          lineNo,
+        );
+      } else if (!targetPath.endsWith(".md")) {
+        push(
+          ctx,
+          "error",
+          "MEMORY.md",
+          `index target must be a markdown file: ${target}`,
+          lineNo,
+        );
+      } else if (!statSync(targetPath).isFile()) {
+        push(ctx, "error", "MEMORY.md", `index target must be a file: ${target}`, lineNo);
       }
     }
-    if (!tail.includes("—") && !tail.includes("--"))
-      push(
-        ctx,
-        "info",
-        "MEMORY.md",
-        `entry missing em-dash hook: ${target}`,
-        lineNo,
-      );
   });
   return { entries, referenced };
 }

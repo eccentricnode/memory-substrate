@@ -51,7 +51,9 @@
   - Status: completed and verified.
   - Completed: importable `validateMemoryDirectory` API added while preserving CLI behavior.
   - Completed: validator checks description length, rejects `MEMORY.md` frontmatter, checks filename/name consistency, rejects markdown in descriptions, detects root-escaping/broken links and invalid index lines, reports unresolved `[[name]]` links as info, and treats topic files missing from `MEMORY.md` as two-step-save errors.
-  - Unresolved review findings: stricter validator requirements for canonical em dash index pointers, flat type coercion, topic markdown links, and target file type/name form.
+  - Completed: strict canonical em-dash index pointer validation; flat top-level `type` is rejected instead of coerced; topic-body local markdown links are validated for broken/out-of-root targets; index targets are constrained to markdown topic files.
+  - Verified: `bun test tests/reference-validator.test.ts tests/validate-command.test.ts` passed with 16 pass / 60 expectations.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 60 pass / 297 expectations.
 
 - P1 — pi-dev adapter docs/protocol.
   - Status: completed and verified.

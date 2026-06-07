@@ -91,6 +91,105 @@ name: invalid-index-frontmatter
     expect(messages).toContain("orphan: not referenced from MEMORY.md");
   });
 
+  test("rejects flat type frontmatter and non-canonical index hooks", () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, "project_flat-type.md"),
+      `---
+name: flat-type
+description: Flat type must not be silently coerced
+type: project
+---
+
+Flat type must be migrated before validation.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Flat type](project_flat-type.md) -- Flat type must not be silently coerced\n",
+    );
+
+    const result = validateMemoryDirectory(root);
+    const messages = result.findings.map((finding) => finding.msg);
+
+    expect(result.counts.error).toBeGreaterThanOrEqual(4);
+    expect(messages).toContain("frontmatter `type` must be nested under `metadata.type`");
+    expect(messages).toContain("frontmatter missing `metadata.type`");
+    expect(messages).toContain("invalid index entry line");
+    expect(messages).toContain("orphan: not referenced from MEMORY.md");
+  });
+
+  test("validates local markdown links inside topic bodies", () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, "reference_related.md"),
+      `---
+name: related
+description: Related reference target
+metadata:
+  type: reference
+---
+
+Related target.
+`,
+    );
+    writeFileSync(
+      join(root, "project_links.md"),
+      `---
+name: links
+description: Local markdown links must stay valid
+metadata:
+  type: project
+---
+
+[Related](reference_related.md) is valid.
+[Missing](missing.md) is broken.
+[Outside](../outside.md) escapes.
+[External](https://example.com/memory.md) is outside validator scope.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Links](project_links.md) — Local markdown links must stay valid",
+        "- [Related](reference_related.md) — Related reference target",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validateMemoryDirectory(root);
+    const messages = result.findings.map((finding) => finding.msg);
+
+    expect(messages).toContain("broken link: missing.md");
+    expect(messages).toContain("link escapes memory root: ../outside.md");
+    expect(messages).not.toContain("broken link: https://example.com/memory.md");
+  });
+
+  test("requires index targets to be markdown topic files", () => {
+    const root = tempDir();
+    writeValidMemory(root);
+    writeFileSync(join(root, "notes.txt"), "not a memory topic\n");
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Self](MEMORY.md) — Index cannot point at itself",
+        "- [Text](notes.txt) — Index targets must be markdown topic files",
+        "- [Bun commands](project_bun-commands.md) — Use Bun for build and test commands",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validateMemoryDirectory(root);
+    const messages = result.findings.map((finding) => finding.msg);
+
+    expect(messages).toContain("index target must reference a topic file: MEMORY.md");
+    expect(messages).toContain("index target must be a markdown file: notes.txt");
+  });
+
   test("reports unresolved wiki links as non-blocking diagnostics", () => {
     const root = tempDir();
     writeFileSync(
