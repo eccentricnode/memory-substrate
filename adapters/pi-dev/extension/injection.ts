@@ -48,16 +48,23 @@ export interface MemoryInjection {
   truncated: boolean;
 }
 
-export function detectsIgnoreMemoryRequest(prompt: string): boolean {
+export function matchedIgnoreMemoryRequest(prompt: string): string | undefined {
   const normalized = prompt.toLowerCase().replace(/\s+/g, " ").trim();
-  return [
-    "don't use memory",
-    "do not use memory",
-    "ignore memory",
-    "ignore memories",
-    "without memory",
-    "no memory",
-  ].some((phrase) => normalized.includes(phrase));
+  const patterns: Array<[string, RegExp]> = [
+    ["don't use memory", /\bdon't use memor(?:y|ies)\b/],
+    ["do not use memory", /\bdo not use memor(?:y|ies)\b/],
+    ["ignore memory", /\bignore memor(?:y|ies)\b/],
+    ["without memory", /\bwithout memory\b/],
+    [
+      "no memory",
+      /^(?:please\s+)?no memory(?:\s+(?:for|this|today|during|in|on|context|session|use|usage))?(?:[.!?]|$)/,
+    ],
+  ];
+  return patterns.find(([, pattern]) => pattern.test(normalized))?.[0];
+}
+
+export function detectsIgnoreMemoryRequest(prompt: string): boolean {
+  return matchedIgnoreMemoryRequest(prompt) !== undefined;
 }
 
 function salientTerms(text: string): Set<string> {

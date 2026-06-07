@@ -128,16 +128,16 @@ describe("memory injection", () => {
       },
     });
 
-    expect(
-      core.handleBeforeAgentStart({
-        prompt: "Use the Ralph loop notes.",
-        systemPrompt: "base",
-      }),
-    ).toBeUndefined();
+    const result = core.handleBeforeAgentStart({
+      prompt: "Use the Ralph loop notes.",
+      systemPrompt: "base",
+    });
+
+    expect(result?.systemPrompt).toContain("Memory ignore mode is active");
     expect(reads).toBe(0);
   });
 
-  test("user ignore request persists for the session", () => {
+  test("user ignore request persists for the session without matching false positives", () => {
     let reads = 0;
     const root = tempDir();
     writeIndex(root, ["- [Ralph loop](project_ralph-loop.md) — use one test runner"]);
@@ -154,17 +154,25 @@ describe("memory injection", () => {
 
     expect(
       core.handleBeforeAgentStart({
-        prompt: "Ignore memory for this session.",
+        prompt: "Debug a no memory leak report.",
         systemPrompt: "base",
       }),
     ).toBeUndefined();
+    expect(core.ignored).toBe(false);
+    reads = 0;
+
+    const ignoreResult = core.handleBeforeAgentStart({
+      prompt: "Ignore memory for this session.",
+      systemPrompt: "base",
+    });
+
+    expect(ignoreResult?.systemPrompt).toContain("Memory ignore mode is active");
     expect(core.ignored).toBe(true);
-    expect(
-      core.handleBeforeAgentStart({
-        prompt: "Now use Ralph loop notes.",
-        systemPrompt: "base",
-      }),
-    ).toBeUndefined();
+    const laterResult = core.handleBeforeAgentStart({
+      prompt: "Now use Ralph loop notes.",
+      systemPrompt: "base",
+    });
+    expect(laterResult?.systemPrompt).toContain("Memory ignore mode is active");
     expect(reads).toBe(0);
   });
 

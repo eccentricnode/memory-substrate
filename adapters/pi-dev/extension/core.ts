@@ -1,7 +1,7 @@
 import { resolveRuntimeConfig, type RuntimeConfig, type RuntimeEnv } from "./config.ts";
 import {
   buildMemoryInjection,
-  detectsIgnoreMemoryRequest,
+  matchedIgnoreMemoryRequest,
   type InjectionFileSystem,
 } from "./injection.ts";
 import {
@@ -56,12 +56,28 @@ export interface AgentEndEvent {
 
 export interface SessionBeforeCompactEvent {
   preparation?: unknown;
+  [key: string]: unknown;
+}
+
+export interface AuditPayloadSummary {
+  byteLength: number;
+  preview: string;
+  truncated: boolean;
+}
+
+export interface BatchItemAuditSummary {
+  id: string;
+  trigger: MemoryBatchItem["trigger"];
+  createdAt: number;
+  messageCount: number;
+  payload?: AuditPayloadSummary;
 }
 
 export interface WorkerAuditRecord {
   batchId: string;
   reason: string;
   itemCount: number;
+  items: BatchItemAuditSummary[];
   model: string;
   dryRun: boolean;
   status: WorkerRunStatus;
@@ -104,6 +120,14 @@ export interface FlushMemoryOptions {
 
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
+const MODE_AUDIT_TYPE = "memory-substrate-mode";
+const AUDIT_STRING_CAP = 300;
+const AUDIT_ARRAY_ITEM_CAP = 5;
+const AUDIT_OBJECT_KEY_CAP = 12;
+const AUDIT_DEPTH_CAP = 3;
+const AUDIT_PREVIEW_CAP = 1_200;
+const IGNORE_MODE_INSTRUCTION =
+  "Memory ignore mode is active for this session. Do not cite, compare against, or apply durable memory that may already be present in context.";
 
 interface WorkerBatchOutcome {
   status: WorkerRunStatus;
@@ -117,6 +141,61 @@ function defaultScheduler(): MemoryScheduler {
     clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     now: () => Date.now(),
   };
+}
+
+function boundedString(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= AUDIT_STRING_CAP) return normalized;
+  return `${normalized.slice(0, AUDIT_STRING_CAP - 3).trimEnd()}...`;
+}
+
+function auditValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return boundedString(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value !== "object") return String(value);
+  if (depth >= AUDIT_DEPTH_CAP) return "[depth limit]";
+  if (Array.isArray(value)) {
+    return {
+      kind: "array",
+      length: value.length,
+      items: value
+        .slice(0, AUDIT_ARRAY_ITEM_CAP)
+        .map((item) => auditValue(item, depth + 1)),
+      truncated: value.length > AUDIT_ARRAY_ITEM_CAP,
+    };
+  }
+
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  const out: Record<string, unknown> = {};
+  for (const key of keys.slice(0, AUDIT_OBJECT_KEY_CAP)) {
+    out[key] = auditValue(source[key], depth + 1);
+  }
+  if (keys.length > AUDIT_OBJECT_KEY_CAP) {
+    out.__truncatedKeys = keys.length - AUDIT_OBJECT_KEY_CAP;
+  }
+  return out;
+}
+
+function auditPayloadSummary(value: unknown): AuditPayloadSummary | undefined {
+  if (value === undefined) return undefined;
+  let preview = JSON.stringify(auditValue(value));
+  if (!preview) preview = String(value);
+  const byteLength = Buffer.byteLength(preview, "utf8");
+  const truncated = byteLength > AUDIT_PREVIEW_CAP;
+  if (truncated) {
+    preview = `${preview.slice(0, AUDIT_PREVIEW_CAP - 3).trimEnd()}...`;
+  }
+  return { byteLength, preview, truncated };
+}
+
+function compactEventMessages(event: SessionBeforeCompactEvent): unknown[] {
+  if (event.preparation !== undefined) return [event.preparation];
+  const keys = Object.keys(event);
+  if (keys.length > 0) return [event];
+  return [];
 }
 
 export class MemoryExtensionCore {
@@ -142,6 +221,9 @@ export class MemoryExtensionCore {
     this.validator = options.validator ?? runReferenceValidator;
     this.state = options.state;
     this.scheduler = options.scheduler ?? defaultScheduler();
+    if (this.ignoreForSession) {
+      this.recordModeAudit("ignore", "config");
+    }
   }
 
   get ignored(): boolean {
@@ -160,11 +242,16 @@ export class MemoryExtensionCore {
     event: BeforeAgentStartEvent,
   ): BeforeAgentStartResult | undefined {
     if (!this.config.enabled) return undefined;
-    if (detectsIgnoreMemoryRequest(event.prompt)) {
+    const ignoreMatch = matchedIgnoreMemoryRequest(event.prompt);
+    if (ignoreMatch) {
       this.ignoreForSession = true;
-      return undefined;
+      this.recordModeAudit("ignore", "prompt", {
+        matchedPhrase: ignoreMatch,
+        prompt: event.prompt,
+      });
+      return this.withIgnoreInstruction(event.systemPrompt);
     }
-    if (this.ignoreForSession) return undefined;
+    if (this.ignoreForSession) return this.withIgnoreInstruction(event.systemPrompt);
 
     const injection = buildMemoryInjection({
       config: this.config,
@@ -190,9 +277,17 @@ export class MemoryExtensionCore {
   }
 
   async handleSessionBeforeCompact(
-    _event: SessionBeforeCompactEvent,
+    event: SessionBeforeCompactEvent,
   ): Promise<undefined> {
-    if (!this.enqueue("session_before_compact", [])) return undefined;
+    if (
+      !this.enqueue(
+        "session_before_compact",
+        compactEventMessages(event),
+        auditPayloadSummary(event),
+      )
+    ) {
+      return undefined;
+    }
     await this.flush("session_before_compact");
     return undefined;
   }
@@ -209,6 +304,7 @@ export class MemoryExtensionCore {
       };
     }
     if (this.ignoreForSession) {
+      this.recordModeAudit("ignore", "flush", { reason });
       return {
         status: "ignored",
         processedItems: 0,
@@ -307,7 +403,11 @@ export class MemoryExtensionCore {
     );
   }
 
-  private enqueue(trigger: MemoryBatchItem["trigger"], messages: unknown[]): boolean {
+  private enqueue(
+    trigger: MemoryBatchItem["trigger"],
+    messages: unknown[],
+    payload?: AuditPayloadSummary,
+  ): boolean {
     if (!this.canProcessBatches()) return false;
     const item: MemoryBatchItem = {
       id: `item-${++this.itemSequence}`,
@@ -315,6 +415,7 @@ export class MemoryExtensionCore {
       createdAt: this.scheduler.now(),
       messageCount: messages.length,
       messages,
+      payload,
     };
     this.queue.push(item);
     this.state?.appendEntry(QUEUE_AUDIT_TYPE, {
@@ -323,6 +424,7 @@ export class MemoryExtensionCore {
       createdAt: item.createdAt,
       messageCount: item.messageCount,
       queueDepth: this.queue.length,
+      payload,
     });
     return true;
   }
@@ -381,6 +483,7 @@ export class MemoryExtensionCore {
         batchId,
         reason,
         itemCount: items.length,
+        items: this.auditItems(items),
         model: this.config.model,
         dryRun: this.config.dryRun,
         status: "refused",
@@ -408,7 +511,7 @@ export class MemoryExtensionCore {
 
     try {
       const result = await this.worker.run(request);
-      this.recordWorkerResult(batchId, reason, items.length, result);
+      this.recordWorkerResult(batchId, reason, items, result);
       if (result.exitCode === 0) {
         return { status: "completed", itemCount: items.length };
       }
@@ -423,6 +526,7 @@ export class MemoryExtensionCore {
         batchId,
         reason,
         itemCount: items.length,
+        items: this.auditItems(items),
         model: this.config.model,
         dryRun: this.config.dryRun,
         status: "failed",
@@ -438,7 +542,7 @@ export class MemoryExtensionCore {
   private recordWorkerResult(
     batchId: string,
     reason: string,
-    itemCount: number,
+    items: MemoryBatchItem[],
     result: MemoryWorkerResult,
   ): void {
     const validatorTail = result.validator
@@ -447,7 +551,8 @@ export class MemoryExtensionCore {
     this.recordWorkerAudit({
       batchId,
       reason,
-      itemCount,
+      itemCount: items.length,
+      items: this.auditItems(items),
       model: this.config.model,
       dryRun: this.config.dryRun,
       status: result.exitCode === 0 ? "completed" : "failed",
@@ -464,5 +569,39 @@ export class MemoryExtensionCore {
 
   private recordWorkerAudit(record: WorkerAuditRecord): void {
     this.state?.appendEntry(WORKER_AUDIT_TYPE, record);
+  }
+
+  private auditItems(items: MemoryBatchItem[]): BatchItemAuditSummary[] {
+    return items.map((item) => ({
+      id: item.id,
+      trigger: item.trigger,
+      createdAt: item.createdAt,
+      messageCount: item.messageCount,
+      payload: item.payload as AuditPayloadSummary | undefined,
+    }));
+  }
+
+  private withIgnoreInstruction(systemPrompt: string): BeforeAgentStartResult {
+    const base = systemPrompt.trimEnd();
+    return {
+      systemPrompt: base
+        ? `${base}\n\n${IGNORE_MODE_INSTRUCTION}`
+        : IGNORE_MODE_INSTRUCTION,
+    };
+  }
+
+  private recordModeAudit(
+    mode: "ignore",
+    source: "config" | "prompt" | "flush",
+    detail?: { matchedPhrase?: string; prompt?: string; reason?: string },
+  ): void {
+    this.state?.appendEntry(MODE_AUDIT_TYPE, {
+      mode,
+      source,
+      matchedPhrase: detail?.matchedPhrase,
+      reason: detail?.reason,
+      prompt: detail?.prompt ? auditPayloadSummary(detail.prompt) : undefined,
+      createdAt: this.scheduler.now(),
+    });
   }
 }

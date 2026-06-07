@@ -24,6 +24,7 @@ export interface MemoryBatchItem {
   createdAt: number;
   messageCount: number;
   messages?: unknown[];
+  payload?: unknown;
 }
 
 export interface MemoryWorkerRequest {
@@ -213,6 +214,8 @@ function textFromMessage(value: unknown): string {
     record.message,
     record.messages,
     record.prompt,
+    record.summary,
+    record.preparation,
   ]
     .map(textFromMessage)
     .filter(Boolean)

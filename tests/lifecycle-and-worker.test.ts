@@ -117,7 +117,48 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
 
     expect(core.pendingBatchItems).toBe(0);
     expect(worker.requests).toHaveLength(0);
-    expect(state.entries).toHaveLength(0);
+    expect(state.entries).toHaveLength(2);
+    expect(state.entries.map((entry) => entry.type)).toEqual([
+      "memory-substrate-mode",
+      "memory-substrate-mode",
+    ]);
+    expect((state.entries[0]?.data as { source?: string }).source).toBe("config");
+    expect((state.entries[1]?.data as { source?: string }).source).toBe("flush");
+  });
+
+  test("prompt ignore mode records the matched phrase for false-positive audits", () => {
+    const state = recordingState();
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: memoryRoot() },
+      state,
+    });
+
+    const falsePositive = core.handleBeforeAgentStart({
+      prompt: "Investigate a no memory leak report.",
+      systemPrompt: "base",
+    });
+    const ignored = core.handleBeforeAgentStart({
+      prompt: `Please do not use memory for this session. ${"x".repeat(2_000)}`,
+      systemPrompt: "base",
+    });
+
+    const modeRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-mode",
+    )?.data as
+      | {
+          source?: string;
+          matchedPhrase?: string;
+          prompt?: { preview?: string };
+        }
+      | undefined;
+
+    expect(falsePositive).toBeUndefined();
+    expect(ignored?.systemPrompt).toContain("Memory ignore mode is active");
+    expect(modeRecord?.source).toBe("prompt");
+    expect(modeRecord?.matchedPhrase).toBe("do not use memory");
+    expect(modeRecord?.prompt?.preview).toContain("do not use memory");
+    expect(modeRecord?.prompt?.preview).not.toContain("x".repeat(400));
   });
 
   test("rapid agent_end events collapse into one debounced worker run", async () => {
@@ -167,16 +208,23 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     ]);
   });
 
-  test("compaction event forces a flush and does not cancel compaction", async () => {
+  test("compaction event passes preparation content and records bounded audit", async () => {
+    const state = recordingState();
     const worker = recordingWorker();
     const core = new MemoryExtensionCore({
       cwd: tempDir(),
       env: { PI_MEMORY_ROOT: memoryRoot(), PI_MEMORY_DEBOUNCE_MS: "10000" },
+      state,
       worker,
     });
 
     await core.handleAgentEnd({ messages: ["pending"] });
-    const result = await core.handleSessionBeforeCompact({});
+    const result = await core.handleSessionBeforeCompact({
+      preparation: {
+        summary: "The durable decision is to preserve compaction payload details.",
+        transcript: "x".repeat(2_000),
+      },
+    });
 
     expect(result).toBeUndefined();
     expect(worker.requests).toHaveLength(1);
@@ -184,6 +232,40 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
       "agent_end",
       "session_before_compact",
     ]);
+    expect(worker.requests[0]?.items[1]?.messageCount).toBe(1);
+    expect(worker.requests[0]?.items[1]?.messages).toEqual([
+      {
+        summary: "The durable decision is to preserve compaction payload details.",
+        transcript: "x".repeat(2_000),
+      },
+    ]);
+
+    const compactQueueRecord = state.entries.find(
+      (entry) =>
+        entry.type === "memory-substrate-queue" &&
+        (entry.data as { trigger?: string }).trigger === "session_before_compact",
+    )?.data as { payload?: { preview?: string } } | undefined;
+    const workerRunRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as
+      | {
+          items?: Array<{
+            trigger?: string;
+            payload?: { preview?: string };
+          }>;
+        }
+      | undefined;
+
+    expect(compactQueueRecord?.payload?.preview).toContain(
+      "preserve compaction payload details",
+    );
+    expect(compactQueueRecord?.payload?.preview?.length).toBeLessThanOrEqual(1_203);
+    expect(compactQueueRecord?.payload?.preview).not.toContain("x".repeat(400));
+    expect(
+      workerRunRecord?.items?.find(
+        (item) => item.trigger === "session_before_compact",
+      )?.payload?.preview,
+    ).toContain("preserve compaction payload details");
   });
 
   test("worker request carries recursion guard and dry-run configuration", async () => {

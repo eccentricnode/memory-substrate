@@ -10,9 +10,12 @@
   - Completed: worker canonicalizes new in-root topic paths before indexing.
   - Completed: worker preflights `MEMORY.md` line and byte caps before mutating files.
   - Completed: post-write validation failure rolls back affected topic/index files plus empty created directories.
-  - Unresolved review findings: capture compaction payloads for audit/debug and audit ignore-mode false positives.
-  - Verified: focused worker write tests passed: `bun test tests/worker-write.test.ts`; exit 0, 12 tests, 55 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 50 tests, 233 expectations across 8 files.
+  - Completed: compaction event structured `summary`/`preparation` content reaches the worker decision text as candidate content.
+  - Completed: queue and worker audit records include bounded payload summaries and item summaries.
+  - Completed: prompt, config, and flush ignore-mode transitions are audited for false-positive debugging.
+  - Completed: ignore mode injects a protective no-cite/no-apply instruction while avoiding memory reads.
+  - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 52 pass, 253 assertions across 8 files.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

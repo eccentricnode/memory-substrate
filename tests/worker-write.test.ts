@@ -119,6 +119,36 @@ describe("deterministic memory worker write path", () => {
     expect(runRecord?.validatorResult?.exitCode).toBe(0);
   });
 
+  test("compaction preparation summary can drive a deterministic memory write", async () => {
+    const root = memoryRoot();
+    const worker = createDeterministicMemoryWorkerRunner();
+    const result = await worker.run({
+      ...request(root, "unused"),
+      items: [
+        {
+          id: "item-compact",
+          trigger: "session_before_compact",
+          createdAt: 1,
+          messageCount: 1,
+          messages: [
+            {
+              preparation: {
+                summary:
+                  "The durable decision is to preserve compaction preparation as candidate content.",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(topicFiles(root)).toHaveLength(1);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+      "preserve compaction preparation as candidate content",
+    );
+  });
+
   test("repeated durable fact updates instead of duplicating", async () => {
     const root = memoryRoot();
     const worker = createDeterministicMemoryWorkerRunner();
