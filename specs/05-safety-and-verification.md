@@ -6,8 +6,9 @@ development, the tests in this spec must exist and fail before implementation be
 
 ## Safety boundaries (hard constraints)
 - **Write confinement.** No write, by the extension or its worker, lands outside the resolved
-  memory root or the host's own config (SPEC §6.3). A denylist enforces this; an attempted
-  out-of-root write fails closed.
+  memory root or the host's own config (SPEC §6.3). For memory writes, the resolved memory
+  root is the allowlisted boundary: write targets are canonicalized and accepted only when
+  they remain inside that root. An attempted out-of-root write fails closed.
 - **Recursion guard.** The worker subprocess runs with the extension disabled in its
   environment so it cannot trigger itself into an unbounded fork. Before relying on env-based
   disabling, confirm the host's subprocess call forwards environment; if it does not, the

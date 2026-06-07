@@ -84,6 +84,17 @@ export interface ValidateMemoryResult {
   outputTail: string;
 }
 
+export interface FlushMemoryResult {
+  status: "flushed" | "idle" | "disabled" | "ignored" | "unavailable";
+  processedItems: number;
+  remainingItems: number;
+  error?: string;
+}
+
+export interface FlushMemoryOptions {
+  drain?: boolean;
+}
+
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
 
@@ -173,16 +184,52 @@ export class MemoryExtensionCore {
     return undefined;
   }
 
-  async flush(reason = "manual"): Promise<void> {
-    if (!this.canProcessBatches()) return;
+  async flush(
+    reason = "manual",
+    options: FlushMemoryOptions = {},
+  ): Promise<FlushMemoryResult> {
+    if (!this.config.enabled) {
+      return {
+        status: "disabled",
+        processedItems: 0,
+        remainingItems: this.queue.length,
+      };
+    }
+    if (this.ignoreForSession) {
+      return {
+        status: "ignored",
+        processedItems: 0,
+        remainingItems: this.queue.length,
+      };
+    }
+    if (this.config.error || !this.config.memoryRoot) {
+      return {
+        status: "unavailable",
+        processedItems: 0,
+        remainingItems: this.queue.length,
+        error: this.config.error ?? "memory root unavailable",
+      };
+    }
+
     this.clearTimer();
     if (this.processing) {
       await this.processingPromise;
     }
+
+    let processedItems = 0;
     while (this.queue.length > 0 && !this.processing) {
+      const nextItemCount = Math.min(this.queue.length, this.config.maxBatchItems);
       await this.processNextBatch(reason);
-      if (reason !== "session_before_compact") break;
+      processedItems += nextItemCount;
+      if (!options.drain && reason !== "session_before_compact") break;
+      this.clearTimer();
     }
+
+    return {
+      status: processedItems > 0 ? "flushed" : "idle",
+      processedItems,
+      remainingItems: this.queue.length,
+    };
   }
 
   async waitForIdle(): Promise<void> {

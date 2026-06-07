@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import memorySubstrateExtension from "../adapters/pi-dev/extension/index.ts";
 import { MemoryExtensionCore } from "../adapters/pi-dev/extension/core.ts";
+import type {
+  MemoryWorkerRequest,
+  MemoryWorkerResult,
+  MemoryWorkerRunner,
+} from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
 const envKeys = ["PI_MEMORY_ENABLED", "PI_MEMORY_ROOT", "PI_MEMORY_IGNORE"];
@@ -65,7 +70,20 @@ function fakeContext(cwd = tempDir()): FakeContext {
   };
 }
 
-function fakePi() {
+function recordingWorker(
+  result: MemoryWorkerResult = { exitCode: 0, stdout: "no memory written" },
+): MemoryWorkerRunner & { requests: MemoryWorkerRequest[] } {
+  return {
+    supportsEnv: true,
+    requests: [],
+    async run(request) {
+      this.requests.push(request);
+      return result;
+    },
+  };
+}
+
+function fakePi(options: Parameters<typeof memorySubstrateExtension>[1] = {}) {
   const handlers = new Map<string, (event: unknown, ctx: FakeContext) => unknown>();
   const commands = new Map<string, FakeCommand>();
   const pi = {
@@ -78,11 +96,12 @@ function fakePi() {
   };
   memorySubstrateExtension(
     pi as unknown as Parameters<typeof memorySubstrateExtension>[0],
+    options,
   );
   return { handlers, commands };
 }
 
-describe("pi-dev memory validation surface", () => {
+describe("pi-dev memory command surface", () => {
   test("core validation is suppressed in disabled mode without invoking the runner", async () => {
     let calls = 0;
     const core = new MemoryExtensionCore({
@@ -149,6 +168,50 @@ describe("pi-dev memory validation surface", () => {
     const notification = ctx.ui.notifications.at(-1);
     expect(notification?.level).toBe("info");
     expect(notification?.message).toBe("memory validation skipped: disabled");
+  });
+
+  test("memory-flush command drains queued candidates without a real model", async () => {
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    delete process.env.PI_MEMORY_ENABLED;
+    const worker = recordingWorker();
+    const { handlers, commands } = fakePi({ worker });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_end")?.({
+      messages: ["The durable decision is to test flush with a stub worker."],
+    }, ctx);
+
+    expect(worker.requests).toHaveLength(0);
+
+    await commands.get("memory-flush")?.handler("", ctx);
+
+    expect(worker.requests).toHaveLength(1);
+    expect(worker.requests[0]?.items.map((item) => item.trigger)).toEqual([
+      "agent_end",
+    ]);
+    const notification = ctx.ui.notifications.at(-1);
+    expect(notification?.level).toBe("success");
+    expect(notification?.message).toContain("processed 1 queued memory candidate");
+    expect(ctx.ui.statuses.at(-1)?.value).toContain(root);
+  });
+
+  test("memory-flush command obeys disabled mode and does not require a root", async () => {
+    process.env.PI_MEMORY_ENABLED = "0";
+    process.env.PI_MEMORY_ROOT = "/missing-memory-root";
+    const worker = recordingWorker();
+    const { handlers, commands } = fakePi({ worker });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await commands.get("memory-flush")?.handler("", ctx);
+
+    expect(worker.requests).toHaveLength(0);
+    expect(ctx.ui.notifications.at(-1)).toEqual({
+      message: "memory flush skipped: disabled",
+      level: "info",
+    });
   });
 
   test("disabled extension handlers short-circuit before resolving the memory root", async () => {

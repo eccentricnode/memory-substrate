@@ -1,10 +1,14 @@
 import type {
+  FlushMemoryResult,
   MemoryExtensionCore,
   SessionBeforeCompactEvent,
   ValidateMemoryResult,
 } from "./core.ts";
 import { MemoryExtensionCore as Core } from "./core.ts";
-import { createLivePiMemoryWorkerRunner } from "./worker.ts";
+import {
+  createLivePiMemoryWorkerRunner,
+  type MemoryWorkerRunner,
+} from "./worker.ts";
 
 interface PiEventApi {
   on(event: "session_start", handler: (event: unknown, ctx: PiContext) => void): void;
@@ -41,13 +45,21 @@ interface PiContext {
   };
 }
 
-function createCore(ctx: PiContext, pi: PiEventApi): MemoryExtensionCore {
+interface MemorySubstrateExtensionOptions {
+  worker?: MemoryWorkerRunner;
+}
+
+function createCore(
+  ctx: PiContext,
+  pi: PiEventApi,
+  options: MemorySubstrateExtensionOptions,
+): MemoryExtensionCore {
   return new Core({
     cwd: ctx.cwd,
     state: pi.appendEntry
       ? { appendEntry: (customType, data) => pi.appendEntry?.(customType, data) }
       : undefined,
-    worker: createLivePiMemoryWorkerRunner(),
+    worker: options.worker ?? createLivePiMemoryWorkerRunner(),
   });
 }
 
@@ -84,7 +96,31 @@ function validationMessage(result: ValidateMemoryResult): string {
   return result.outputTail ? `${headline}\n${result.outputTail}` : headline;
 }
 
-export default function memorySubstrateExtension(pi: PiEventApi) {
+function flushLevel(result: FlushMemoryResult): "info" | "warn" | "error" | "success" {
+  if (result.status === "flushed") return "success";
+  if (result.status === "unavailable") return "error";
+  return "info";
+}
+
+function flushMessage(result: FlushMemoryResult): string {
+  if (result.status === "disabled") return "memory flush skipped: disabled";
+  if (result.status === "ignored") return "memory flush skipped: ignored";
+  if (result.status === "unavailable") {
+    return `memory flush unavailable: ${result.error ?? "memory root unavailable"}`;
+  }
+  if (result.status === "idle") {
+    return "memory flush complete: no queued memory candidates";
+  }
+
+  const suffix =
+    result.remainingItems > 0 ? `, ${result.remainingItems} still queued` : "";
+  return `memory flush complete: processed ${result.processedItems} queued memory candidate(s)${suffix}`;
+}
+
+export default function memorySubstrateExtension(
+  pi: PiEventApi,
+  options: MemorySubstrateExtensionOptions = {},
+) {
   let core: MemoryExtensionCore | undefined;
 
   pi.on("session_start", (_event, ctx) => {
@@ -93,7 +129,7 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
       ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
       return;
     }
-    core = createCore(ctx, pi);
+    core = createCore(ctx, pi, options);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
   });
 
@@ -103,7 +139,7 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
       ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
       return undefined;
     }
-    core ??= createCore(ctx, pi);
+    core ??= createCore(ctx, pi, options);
     const result = core.handleBeforeAgentStart(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
     return result;
@@ -115,7 +151,7 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
       ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
       return;
     }
-    core ??= createCore(ctx, pi);
+    core ??= createCore(ctx, pi, options);
     await core.handleAgentEnd(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
   });
@@ -126,7 +162,7 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
       ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
       return undefined;
     }
-    core ??= createCore(ctx, pi);
+    core ??= createCore(ctx, pi, options);
     await core.handleSessionBeforeCompact(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
     return undefined;
@@ -140,8 +176,23 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
         ctx.ui?.notify?.("memory: disabled", "info");
         return;
       }
-      core ??= createCore(ctx, pi);
+      core ??= createCore(ctx, pi, options);
       ctx.ui?.notify?.(statusLine(core), "info");
+    },
+  });
+
+  pi.registerCommand?.("memory-flush", {
+    description: "Flush queued memory candidates now",
+    handler: async (_args, ctx) => {
+      if (memoryDisabled()) {
+        core = undefined;
+        ctx.ui?.notify?.("memory flush skipped: disabled", "info");
+        return;
+      }
+      core ??= createCore(ctx, pi, options);
+      const result = await core.flush("manual_command", { drain: true });
+      ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
+      ctx.ui?.notify?.(flushMessage(result), flushLevel(result));
     },
   });
 
@@ -153,7 +204,7 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
         ctx.ui?.notify?.("memory validation skipped: disabled", "info");
         return;
       }
-      core ??= createCore(ctx, pi);
+      core ??= createCore(ctx, pi, options);
       const result = await core.validateMemory();
       ctx.ui?.notify?.(validationMessage(result), validationLevel(result));
     },
