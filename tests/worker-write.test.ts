@@ -245,6 +245,31 @@ describe("deterministic memory worker write path", () => {
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("worker-supplied relative paths must use the pi-dev topic filename convention", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "filename-contract",
+          description: "filename contract",
+          body: "filename contract",
+          relativePath: "custom_filename-contract.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is filename."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "memory relativePath filename must be project_filename-contract.md",
+    );
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
   test("symlink topic path escaping the memory root is refused", async () => {
     const root = memoryRoot();
     const outside = tempDir();

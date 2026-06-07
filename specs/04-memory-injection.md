@@ -20,6 +20,9 @@ purpose of the substrate.
   section. The extension may initialize or cache memory state at session start, but
   model-visible memory is injected only as relevant index snippets under this spec's caps,
   not as an unconditional full-index dump.
+- This satisfies the pi.dev bootstrap obligation by making durable memory available at the
+  turn boundary where pi.dev can safely bound and attribute it. It does not require a
+  full `MEMORY.md` dump to be visible to the model at session start.
 - When nothing relevant is found, the extension injects nothing and does not alter the prompt.
 
 ### Relevance and size

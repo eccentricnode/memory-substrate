@@ -20,6 +20,9 @@ two-step saves, and validation have one write authority. Default-deny is the gov
 - The worker receives only the batch under consideration plus memory-root, dry-run, and
   write-protocol context. A bounded existing-memory snapshot may be included in that
   protocol context for dedupe; the full session context is never included.
+- In the pi.dev extension-first path, the extension delivers the write protocol to the
+  worker and applicator as operational context for forced writes. The adapter
+  `memory-protocol.md` remains the prompt/manual fallback for sessions without that path.
 - The worker runs with the memory extension disabled in its own environment (recursion guard,
   per AGENTS.md invariant 3).
 

@@ -2,8 +2,13 @@
 
 - P0 — pi-dev forced-write extension.
   - Status: completed and verified, including the new manual `memory-flush` command.
+  - Open: decide and implement a delete/remove draft path so stale or contradicted memories can be removed safely, not only appended or updated.
+  - Open: strengthen dedupe fallback beyond exact-match detection; survey suggests keyword or near-duplicate handling is not yet covered.
+  - Open: add preflight model-name validation for absent `PI_MEMORY_MODEL` so a missing/invalid default fails with a clear local error instead of relying on child `pi` failure.
+  - Open: decide behavior when `MEMORY.md` is missing in enabled mode, then document and test that path.
   - Completed: live worker runner uses an env-capable launcher and runs child `pi` with `PI_MEMORY_ENABLED=0` plus isolation flags.
   - Completed: root-confined applicator remains the write authority and enforces two-step saves: topic file plus `MEMORY.md` pointer.
+  - Completed: worker-supplied `relativePath` basenames are refused unless they match the normalized draft type/name filename convention, with regression coverage.
   - Completed: status, validate, and flush commands are present.
   - Completed: specs/04 and specs/05 wording tensions are resolved.
   - Completed: failed/refused flushes report clear failed/refused status, retain queued candidates, and are covered by lifecycle plus `memory-flush` command regression tests.
@@ -15,9 +20,10 @@
   - Completed: prompt, config, and flush ignore-mode transitions are audited for false-positive debugging.
   - Completed: ignore mode injects a protective no-cite/no-apply instruction while avoiding memory reads.
   - Completed: dry-run stdout now prints proposed paths plus rendered topic/index content inline while writing nothing.
+  - Verified: focused worker-write test passed: `bun test tests/worker-write.test.ts`; 14 pass.
   - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 17 pass, 100 expectations.
   - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
-  - Verified: latest green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 57 pass, 287 expectations across 8 files.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 62 pass.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.
@@ -73,3 +79,4 @@
   - Verified: focused lifecycle/worker tests passed: `bun test tests/lifecycle-and-worker.test.ts`; exit 0, 10 pass, 69 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 61 pass, 315 expectations across 8 files.
   - Current finding: specs define `reference/migrator.ts` but do not formally define the PAI-shaped input schema; the implementation therefore uses conservative inference and makes every inferred/ambiguous conversion reviewable in `MIGRATION_REPORT.md`.
+  - Next increment: formalize the PAI-shaped migrator input schema. P0 read-only survey follow-ups are tracked under the pi-dev forced-write extension section.

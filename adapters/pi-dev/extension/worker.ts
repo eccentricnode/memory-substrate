@@ -726,6 +726,12 @@ export async function applyMemoryWriteDrafts(
   const proposedPaths = new Set<string>();
   const writePlan = normalized.map((draft) => {
     const preferredPath = safePath(request.memoryRoot, draft.relativePath);
+    const expectedFilename = `${draft.type}_${draft.name}.md`;
+    if (basename(preferredPath) !== expectedFilename) {
+      throw new Error(
+        `memory relativePath filename must be ${expectedFilename}: ${draft.relativePath}`,
+      );
+    }
     const existingPath = findExistingTopic(request.memoryRoot, draft);
     const topicRelativePath = existingPath
       ? relativeTopicPath(request.memoryRoot, existingPath)

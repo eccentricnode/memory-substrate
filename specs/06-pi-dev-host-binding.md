@@ -13,6 +13,10 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 - SPEC §6.2 treats forced-write hooks as optional for adapters in general. For this pi.dev
   target they are required: pi.dev exposes turn-end and pre-compaction hook surfaces, so the
   adapter must implement forced writes through those surfaces or fail its target contract.
+- Forced-write protocol delivery is extension-first: the worker receives the write rules as
+  internal context and the applicator enforces the structural parts. The prompt-bakeable
+  adapter protocol remains available for manual fallback, not as the primary forced-write
+  delivery surface.
 
 ### Memory root precedence
 - The resolved memory root is chosen once per extension runtime and reused by every handler.
@@ -51,7 +55,10 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 - The pi.dev adapter exposes a validate operation that runs the reference validator against the resolved memory root.
 - Disabled mode suppresses validation because disabled mode means no memory I/O.
 - Invalid frontmatter types are validator errors for this adapter. Validator errors fail the
-  operation; warnings remain advisory for v0.1.
+  operation; general v0.1 warnings remain advisory.
+- Adapter-specific stricter caps are allowed by SPEC §2.5. When the pi.dev adapter declares
+  an index cap, exceeding it is a pi.dev write-time refusal even if the substrate-neutral
+  v0.1 validator would otherwise classify that cap family as a warning.
 
 ## Verification signals
 - Root precedence tests prove explicit configuration wins and default resolution is stable.
@@ -61,3 +68,4 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 - Injection tests verify the 12-line / 4 KB cap and visible attribution.
 - Audit tests verify queue and run records are retrievable from extension state but absent from LLM messages.
 - Validate command tests invoke the reference validator with the resolved root and obey disabled mode.
+- Forced-write tests prove adapter-specific index cap violations are refused before topic files are written.
