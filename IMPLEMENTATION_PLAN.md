@@ -18,7 +18,8 @@
   - Completed: repeat facts dedupe/update existing memory instead of duplicating pointers.
   - Completed: symlink and out-of-root write attempts are refused before mutation.
   - Completed: after-write validation invokes `reference/validator.ts`; audit coverage records validator results.
-  - Verified: `bunx tsc --noEmit && bun test` passed with 24 tests.
+  - Completed: pi.dev `/memory-validate` command surface reuses the exported `runReferenceValidator` from `adapters/pi-dev/extension/worker.ts`, obeys disabled mode, reports unavailable roots, and has offline tests.
+  - Verified: `bunx tsc --noEmit && bun test` passed with 28 tests.
   - Constraints: no real model calls; no global pi extension install; use exactly one test runner for the green gate.
 
 - P0 — Config and mode gates.
@@ -26,7 +27,7 @@
   - Cover: enabled/disabled, ignore, dry-run, memory root, model default, debounce/max batch defaults.
   - Required: `PI_MEMORY_ENABLED=0` means no bootstrap, reads, writes, injection, queueing, worker invocation, or validation.
   - Required: ignore mode means no injection, no writes, and no citations/application.
-  - Remaining P0: live env-capable worker implementation and pi.dev validate command surface.
+  - Remaining P0: live env-capable worker implementation.
 
 - P0 — Memory injection.
   - Status: first slice implemented and test-covered.
@@ -44,13 +45,13 @@
   - Default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
 
 - P0 — Remaining forced-write implementation.
-  - Status: bounded offline write/validation path complete; live host surfaces pending.
+  - Status: bounded offline write/validation path and validate command surface complete; live worker execution pending.
   - Completed: lifecycle batching collects `agent_end` and `session_before_compact` events.
   - Completed: debounce/max-batch behavior, injected worker-runner contract, recursion-guard env in worker requests, fail-closed unsupported `pi.exec` env path, and audit entries are implemented and covered by offline tests.
   - Completed: deterministic offline write decisions, two-step topic/index saves, dry-run proposed paths/no writes, dedupe/update behavior, symlink/out-of-root refusal, and validator-after-write/audit coverage are implemented.
-  - Verified: `bunx tsc --noEmit && bun test` passed with 24 tests.
+  - Completed: `/memory-validate` reuses exported `runReferenceValidator`, obeys disabled mode, reports unavailable roots, and is covered by offline tests.
+  - Verified: `bunx tsc --noEmit && bun test` passed with 28 tests.
   - Remaining: implement live env-capable worker execution with the `claude-haiku-4-5` default model and `PI_MEMORY_MODEL` override.
-  - Remaining: expose the pi.dev validate command surface backed by `reference/validator.ts`.
 
 - P1 — Harden the reference validator to match SPEC.
   - Status: pending for remaining SPEC gaps.
@@ -65,4 +66,4 @@
 
 - P2 — Later extension capabilities.
   - Status: deferred.
-  - Add batching, forced-write worker, dry-run audit flow, validator invocation after writes, status reporting, validate/flush commands, and SPEC §7 compactor/migrator reconciliation after the current increment is green.
+  - Add live forced-write worker execution, status reporting, flush command, and SPEC §7 compactor/migrator reconciliation after the current increment is green.

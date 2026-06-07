@@ -7,7 +7,9 @@ import {
 import {
   buildWorkerEnv,
   outputTail,
+  runReferenceValidator,
   type MemoryBatchItem,
+  type MemoryValidationResult,
   type MemoryWorkerRequest,
   type MemoryWorkerResult,
   type MemoryWorkerRunner,
@@ -30,9 +32,14 @@ export interface MemoryExtensionCoreOptions {
   homeDir?: string;
   fs?: InjectionFileSystem;
   worker?: MemoryWorkerRunner;
+  validator?: MemoryValidatorRunner;
   state?: ExtensionStateSink;
   scheduler?: MemoryScheduler;
 }
+
+export type MemoryValidatorRunner = (
+  memoryRoot: string,
+) => Promise<MemoryValidationResult>;
 
 export interface BeforeAgentStartEvent {
   prompt: string;
@@ -69,6 +76,14 @@ export interface WorkerAuditRecord {
   outputTail: string;
 }
 
+export interface ValidateMemoryResult {
+  status: "passed" | "failed" | "disabled" | "unavailable";
+  memoryRoot?: string;
+  exitCode?: number;
+  error?: string;
+  outputTail: string;
+}
+
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
 
@@ -85,6 +100,7 @@ export class MemoryExtensionCore {
   private ignoreForSession: boolean;
   private fs?: InjectionFileSystem;
   private worker?: MemoryWorkerRunner;
+  private validator: MemoryValidatorRunner;
   private state?: ExtensionStateSink;
   private scheduler: MemoryScheduler;
   private queue: MemoryBatchItem[] = [];
@@ -99,6 +115,7 @@ export class MemoryExtensionCore {
     this.ignoreForSession = this.config.ignore;
     this.fs = options.fs;
     this.worker = options.worker;
+    this.validator = options.validator ?? runReferenceValidator;
     this.state = options.state;
     this.scheduler = options.scheduler ?? defaultScheduler();
   }
@@ -170,6 +187,41 @@ export class MemoryExtensionCore {
 
   async waitForIdle(): Promise<void> {
     await this.processingPromise;
+  }
+
+  async validateMemory(): Promise<ValidateMemoryResult> {
+    if (!this.config.enabled) {
+      return {
+        status: "disabled",
+        error: "memory validation suppressed: memory is disabled",
+        outputTail: "",
+      };
+    }
+    if (this.config.error || !this.config.memoryRoot) {
+      return {
+        status: "unavailable",
+        error: this.config.error ?? "memory root unavailable",
+        outputTail: "",
+      };
+    }
+
+    try {
+      const result = await this.validator(this.config.memoryRoot);
+      return {
+        status: result.exitCode === 0 ? "passed" : "failed",
+        memoryRoot: this.config.memoryRoot,
+        exitCode: result.exitCode,
+        error: result.exitCode === 0 ? undefined : result.stderr || "validator failed",
+        outputTail: outputTail(result.stdout, result.stderr, 1_600),
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        memoryRoot: this.config.memoryRoot,
+        error: error instanceof Error ? error.message : String(error),
+        outputTail: "",
+      };
+    }
   }
 
   private canProcessBatches(): boolean {

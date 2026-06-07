@@ -1,6 +1,7 @@
 import type {
   MemoryExtensionCore,
   SessionBeforeCompactEvent,
+  ValidateMemoryResult,
 } from "./core.ts";
 import { MemoryExtensionCore as Core } from "./core.ts";
 import { unsupportedPiExecWorkerRunner } from "./worker.ts";
@@ -25,7 +26,10 @@ interface PiEventApi {
   appendEntry?: (customType: string, data?: unknown) => void;
   registerCommand?(
     name: string,
-    command: { description: string; handler: (args: string, ctx: PiContext) => void },
+    command: {
+      description: string;
+      handler: (args: string, ctx: PiContext) => void | Promise<void>;
+    },
   ): void;
 }
 
@@ -53,6 +57,27 @@ function statusLine(core: MemoryExtensionCore): string {
   if (status.ignored) return "memory: ignored";
   if (status.error) return `memory: unavailable (${status.error})`;
   return `memory: ${status.dryRun ? "dry-run, " : ""}${status.memoryRoot}`;
+}
+
+function validationLevel(
+  result: ValidateMemoryResult,
+): "info" | "warn" | "error" | "success" {
+  if (result.status === "passed") return "success";
+  if (result.status === "disabled") return "info";
+  return "error";
+}
+
+function validationMessage(result: ValidateMemoryResult): string {
+  if (result.status === "disabled") return "memory validation skipped: disabled";
+  if (result.status === "unavailable") {
+    return `memory validation unavailable: ${result.error ?? "memory root unavailable"}`;
+  }
+
+  const headline =
+    result.status === "passed"
+      ? `memory validation passed: ${result.memoryRoot}`
+      : `memory validation failed (${result.exitCode ?? "unknown"}): ${result.memoryRoot}`;
+  return result.outputTail ? `${headline}\n${result.outputTail}` : headline;
 }
 
 export default function memorySubstrateExtension(pi: PiEventApi) {
@@ -88,6 +113,15 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
     handler: (_args, ctx) => {
       core ??= createCore(ctx, pi);
       ctx.ui?.notify?.(statusLine(core), "info");
+    },
+  });
+
+  pi.registerCommand?.("memory-validate", {
+    description: "Validate the resolved memory root with memory-substrate",
+    handler: async (_args, ctx) => {
+      core ??= createCore(ctx, pi);
+      const result = await core.validateMemory();
+      ctx.ui?.notify?.(validationMessage(result), validationLevel(result));
     },
   });
 }

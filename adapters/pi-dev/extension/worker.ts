@@ -40,11 +40,7 @@ export interface MemoryWorkerResult {
   stderr?: string;
   changedPaths?: string[];
   proposedPaths?: string[];
-  validator?: {
-    exitCode: number;
-    stdout?: string;
-    stderr?: string;
-  };
+  validator?: MemoryValidationResult;
 }
 
 export interface MemoryWorkerRunner {
@@ -64,7 +60,13 @@ export interface MemoryWriteDraft {
 
 export interface DeterministicMemoryWorkerOptions {
   decideWrites?: (request: MemoryWorkerRequest) => MemoryWriteDraft[];
-  validate?: (memoryRoot: string) => Promise<MemoryWorkerResult["validator"]>;
+  validate?: (memoryRoot: string) => Promise<MemoryValidationResult>;
+}
+
+export interface MemoryValidationResult {
+  exitCode: number;
+  stdout?: string;
+  stderr?: string;
 }
 
 export const RECURSION_GUARD_ENV: RuntimeEnv = {
@@ -373,9 +375,9 @@ function relativeTopicPath(root: string, topicPath: string): string {
   return rel;
 }
 
-async function defaultValidate(
+export async function runReferenceValidator(
   memoryRoot: string,
-): Promise<MemoryWorkerResult["validator"]> {
+): Promise<MemoryValidationResult> {
   return new Promise((resolveValidator) => {
     if (!existsSync(VALIDATOR_PATH)) {
       resolveValidator({
@@ -454,7 +456,9 @@ export async function applyMemoryWriteDrafts(
     changedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
   }
 
-  const validator = await (options.validate ?? defaultValidate)(request.memoryRoot);
+  const validator = await (options.validate ?? runReferenceValidator)(
+    request.memoryRoot,
+  );
   const failedValidation = validator && validator.exitCode !== 0;
   return {
     exitCode: failedValidation ? 1 : 0,
