@@ -3,9 +3,13 @@
 - P0 — Current increment: live forced-write worker.
   - Status: completed and verified.
   - Finding: `pi.exec` remains unsafe for live workers because it cannot forward env, so it cannot prove the recursion guard reaches the child.
+  - Completed: pi-dev docs/protocol now match extension-first behavior, and the writer emits canonical em dash index pointers instead of ASCII `--` separators.
+  - Completed: reference validator now treats topic files missing from `MEMORY.md` as two-step-save errors instead of orphan-topic warnings.
+  - Completed: worker draft `relativePath` now rejects absolute paths before writing, even when the absolute path is inside the memory root.
+  - Completed: disabled mode now short-circuits before core construction, preserving the no-bootstrap/no-read/no-write contract.
   - Design: live runner uses Node `spawn` to run `pi -p` with `PI_MEMORY_ENABLED=0`, `--no-extensions`, `--no-context-files`, `--no-skills`, `--no-prompt-templates`, `--no-session`, and `--no-tools`.
   - Design: live model returns structured memory drafts only; the existing root-confined applicator remains the single write authority and performs the two-step topic file plus `MEMORY.md` save.
-  - Verified: `bunx tsc --noEmit && bun test` passed via exactly one test subagent; exit 0, 32 tests passed, 0 failed, 124 expectations.
+  - Verified: `bunx tsc --noEmit && bun test` passed via exactly one test subagent; exit 0, 38 tests passed, 0 failed, 148 expectations.
   - Constraints: no real model calls; no global pi extension install; use exactly one test runner for the green gate.
 
 - P0 — Config and mode gates.
@@ -37,8 +41,8 @@
   - Known unresolved gaps: none currently documented.
 
 - P1 — Align prompt-only adapter docs/protocol with canonical behavior.
-  - Status: pending after extension behavior exists.
-  - Known gaps: `adapters/pi-dev/README.md` still says no auto-save; `adapters/pi-dev/memory-protocol.md` describes on-demand index loading, hardcoded local validator/root paths, and the 300-character description cap.
+  - Status: completed and verified for the extension-first behavior.
+  - Completed: `adapters/pi-dev/README.md` and `adapters/pi-dev/memory-protocol.md` now document the forced-write extension path instead of stale prompt-only/no-auto-save behavior, on-demand index loading, hardcoded local validator/root paths, or the 300-character description cap.
   - Open note: SPEC/bootstrap wording and pi-dev bounded injection behavior need reconciliation or clarification.
   - Open note: host-binding worker input wording may need clarification because the live prompt includes an existing-memory snapshot for dedupe.
 

@@ -51,6 +51,10 @@ function createCore(ctx: PiContext, pi: PiEventApi): MemoryExtensionCore {
   });
 }
 
+function memoryDisabled(): boolean {
+  return process.env.PI_MEMORY_ENABLED === "0";
+}
+
 function statusLine(core: MemoryExtensionCore): string {
   const status = core.getStatus();
   if (!status.enabled) return "memory: disabled";
@@ -84,11 +88,21 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
   let core: MemoryExtensionCore | undefined;
 
   pi.on("session_start", (_event, ctx) => {
+    if (memoryDisabled()) {
+      core = undefined;
+      ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
+      return;
+    }
     core = createCore(ctx, pi);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
   });
 
   pi.on("before_agent_start", (event, ctx) => {
+    if (memoryDisabled()) {
+      core = undefined;
+      ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
+      return undefined;
+    }
     core ??= createCore(ctx, pi);
     const result = core.handleBeforeAgentStart(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
@@ -96,12 +110,22 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
   });
 
   pi.on("agent_end", async (event, ctx) => {
+    if (memoryDisabled()) {
+      core = undefined;
+      ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
+      return;
+    }
     core ??= createCore(ctx, pi);
     await core.handleAgentEnd(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
+    if (memoryDisabled()) {
+      core = undefined;
+      ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
+      return undefined;
+    }
     core ??= createCore(ctx, pi);
     await core.handleSessionBeforeCompact(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
@@ -111,6 +135,11 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
   pi.registerCommand?.("memory-status", {
     description: "Show memory-substrate mode and resolved memory root",
     handler: (_args, ctx) => {
+      if (memoryDisabled()) {
+        core = undefined;
+        ctx.ui?.notify?.("memory: disabled", "info");
+        return;
+      }
       core ??= createCore(ctx, pi);
       ctx.ui?.notify?.(statusLine(core), "info");
     },
@@ -119,6 +148,11 @@ export default function memorySubstrateExtension(pi: PiEventApi) {
   pi.registerCommand?.("memory-validate", {
     description: "Validate the resolved memory root with memory-substrate",
     handler: async (_args, ctx) => {
+      if (memoryDisabled()) {
+        core = undefined;
+        ctx.ui?.notify?.("memory validation skipped: disabled", "info");
+        return;
+      }
       core ??= createCore(ctx, pi);
       const result = await core.validateMemory();
       ctx.ui?.notify?.(validationMessage(result), validationLevel(result));

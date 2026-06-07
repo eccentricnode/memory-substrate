@@ -33,7 +33,7 @@ Use Bun for build and test commands.
   );
   writeFileSync(
     join(root, "MEMORY.md"),
-    "# Memory\n\n- [Bun commands](project_bun-commands.md) -- Use Bun for build and test commands\n",
+    "# Memory\n\n- [Bun commands](project_bun-commands.md) — Use Bun for build and test commands\n",
   );
 }
 
@@ -88,11 +88,15 @@ name: invalid-index-frontmatter
     expect(messages).toContain("link escapes memory root: ../outside.md");
     expect(messages).toContain("broken link: missing.md");
     expect(messages).toContain("description 205 chars exceeds 200 cap");
+    expect(messages).toContain("orphan: not referenced from MEMORY.md");
   });
 
   test("reports unresolved wiki links as non-blocking diagnostics", () => {
     const root = tempDir();
-    writeFileSync(join(root, "MEMORY.md"), "# Memory\n");
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Pointer](reference_pointer.md) — Points to a future memory\n",
+    );
     writeFileSync(
       join(root, "reference_pointer.md"),
       `---
@@ -113,5 +117,30 @@ See [[future-memory]] when it exists.
 
     expect(wikiFinding?.severity).toBe("info");
     expect(result.counts.error).toBe(0);
+  });
+
+  test("reports topic files missing from MEMORY.md as errors", () => {
+    const root = tempDir();
+    writeFileSync(join(root, "MEMORY.md"), "# Memory\n");
+    writeFileSync(
+      join(root, "project_unindexed.md"),
+      `---
+name: unindexed
+description: Missing the required index pointer
+metadata:
+  type: project
+---
+
+Missing the required index pointer.
+`,
+    );
+
+    const result = validateMemoryDirectory(root);
+    const orphan = result.findings.find((finding) =>
+      finding.msg.includes("orphan"),
+    );
+
+    expect(orphan?.severity).toBe("error");
+    expect(result.counts.error).toBeGreaterThan(0);
   });
 });

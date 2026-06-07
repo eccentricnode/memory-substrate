@@ -356,7 +356,7 @@ export function validateMemoryDirectory(root: string): ValidationReport {
   );
   for (const f of topicFiles) {
     if (!referencedAbs.has(resolve(f))) {
-      push(ctx, "warn", relative(ctx.root, f), "orphan: not referenced from MEMORY.md");
+      push(ctx, "error", relative(ctx.root, f), "orphan: not referenced from MEMORY.md");
     }
   }
 

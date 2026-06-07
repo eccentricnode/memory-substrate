@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeEnv } from "./config.ts";
 
@@ -345,6 +345,9 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   if (!description) throw new Error("memory description is required");
   const name = slugify(draft.name ?? description);
   const relativePath = draft.relativePath ?? `${draft.type}_${name}.md`;
+  if (isAbsolute(relativePath)) {
+    throw new Error(`memory relativePath must be relative: ${relativePath}`);
+  }
   if (!relativePath.endsWith(".md") || basename(relativePath) === "MEMORY.md") {
     throw new Error(`invalid topic memory path: ${relativePath}`);
   }
@@ -376,7 +379,7 @@ function upsertIndexLine(
 ): string {
   const indexPath = ensureIndex(root);
   const index = readFileSync(indexPath, "utf8");
-  const line = `- [${draft.title}](${topicRelativePath}) -- ${draft.hook}`;
+  const line = `- [${draft.title}](${topicRelativePath}) — ${draft.hook}`;
   const lines = index.split(/\r?\n/);
   let replaced = false;
   const nextLines = lines.map((existing) => {

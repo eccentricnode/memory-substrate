@@ -38,6 +38,7 @@ interface FakeContext {
   cwd: string;
   ui: {
     notifications: Array<{ message: string; level?: string }>;
+    statuses: Array<{ key: string; value: string | undefined }>;
     notify(message: string, level?: string): void;
     setStatus(key: string, value: string | undefined): void;
   };
@@ -53,10 +54,13 @@ function fakeContext(cwd = tempDir()): FakeContext {
     cwd,
     ui: {
       notifications: [],
+      statuses: [],
       notify(message, level) {
         this.notifications.push({ message, level });
       },
-      setStatus() {},
+      setStatus(key, value) {
+        this.statuses.push({ key, value });
+      },
     },
   };
 }
@@ -145,5 +149,34 @@ describe("pi-dev memory validation surface", () => {
     const notification = ctx.ui.notifications.at(-1);
     expect(notification?.level).toBe("info");
     expect(notification?.message).toBe("memory validation skipped: disabled");
+  });
+
+  test("disabled extension handlers short-circuit before resolving the memory root", async () => {
+    process.env.PI_MEMORY_ENABLED = "0";
+    process.env.PI_MEMORY_ROOT = "/missing-memory-root";
+    const { handlers, commands } = fakePi();
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    const startResult = handlers.get("before_agent_start")?.(
+      { prompt: "remember Bun", systemPrompt: "base" },
+      ctx,
+    );
+    await handlers.get("agent_end")?.({ messages: ["remember Bun"] }, ctx);
+    const compactResult = await handlers.get("session_before_compact")?.({}, ctx);
+    commands.get("memory-status")?.handler("", ctx);
+
+    expect(startResult).toBeUndefined();
+    expect(compactResult).toBeUndefined();
+    expect(ctx.ui.statuses.map((status) => status.value)).toEqual([
+      "memory: disabled",
+      "memory: disabled",
+      "memory: disabled",
+      "memory: disabled",
+    ]);
+    expect(ctx.ui.notifications.at(-1)).toEqual({
+      message: "memory: disabled",
+      level: "info",
+    });
   });
 });

@@ -108,7 +108,7 @@ describe("deterministic memory worker write path", () => {
     expect(topic).toContain("metadata:\n  type: project");
     expect(topic).toContain("use Bun for all build and test commands");
     const index = readFileSync(join(root, "MEMORY.md"), "utf8");
-    expect(index).toContain(`](${topics[0]}) -- use Bun for all build and test commands`);
+    expect(index).toContain(`](${topics[0]}) — use Bun for all build and test commands`);
 
     const runRecord = state.entries.find(
       (entry) => entry.type === "memory-substrate-worker-run",
@@ -180,6 +180,28 @@ describe("deterministic memory worker write path", () => {
     expect(result.stderr).toContain("out-of-root");
     expect(topicFiles(root)).toEqual([]);
     expect(readdirSync(join(root, "..")).includes("escape.md")).toBe(false);
+  });
+
+  test("absolute topic paths are refused before writing even inside the memory root", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "absolute path attempt",
+          body: "absolute path attempt",
+          relativePath: join(root, "project_absolute-path-attempt.md"),
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is absolute."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("relativePath must be relative");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
   test("symlink topic path escaping the memory root is refused", async () => {
