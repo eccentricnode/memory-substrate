@@ -3,8 +3,15 @@
 // Usage: bun reference/validator.ts <memory_root>
 // Spec: SPEC.md v0.1.0-draft
 
-import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
-import { join, basename, relative, dirname } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 type MemoryType = typeof VALID_TYPES[number];
@@ -12,14 +19,37 @@ type MemoryType = typeof VALID_TYPES[number];
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
 const HOOK_LINE_CAP = 150;
-const DESCRIPTION_CAP = 300;
+const DESCRIPTION_CAP = 200;
 
-type Severity = "error" | "warn" | "info";
-type Finding = { severity: Severity; file: string; line?: number; msg: string };
+export type Severity = "error" | "warn" | "info";
+export type Finding = { severity: Severity; file: string; line?: number; msg: string };
 
-const findings: Finding[] = [];
-const push = (severity: Severity, file: string, msg: string, line?: number) =>
-  findings.push({ severity, file, line, msg });
+export interface ValidationCounts {
+  error: number;
+  warn: number;
+  info: number;
+}
+
+export interface ValidationReport {
+  root: string;
+  topicFileCount: number;
+  findings: Finding[];
+  counts: ValidationCounts;
+}
+
+interface ValidationContext {
+  root: string;
+  realRoot: string;
+  findings: Finding[];
+}
+
+const push = (
+  ctx: ValidationContext,
+  severity: Severity,
+  file: string,
+  msg: string,
+  line?: number,
+) => ctx.findings.push({ severity, file, line, msg });
 
 function parseFrontmatter(content: string): {
   ok: boolean;
@@ -66,12 +96,39 @@ function parseFrontmatter(content: string): {
   return { ok: true, data };
 }
 
-function listMarkdownFiles(root: string): string[] {
+function isInsideRoot(root: string, target: string): boolean {
+  const resolvedRoot = resolve(root);
+  const resolvedTarget = resolve(target);
+  return (
+    resolvedTarget === resolvedRoot ||
+    resolvedTarget.startsWith(`${resolvedRoot}${sep}`)
+  );
+}
+
+function listMarkdownFiles(ctx: ValidationContext): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
-      const s = statSync(full);
+      const rel = relative(ctx.root, full);
+      const lstat = lstatSync(full);
+      let realFull: string;
+      try {
+        realFull = realpathSync(full);
+      } catch (error) {
+        push(
+          ctx,
+          "warn",
+          rel,
+          `cannot resolve path: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        continue;
+      }
+      if (!isInsideRoot(ctx.realRoot, realFull)) {
+        push(ctx, "error", rel, "path escapes memory root");
+        continue;
+      }
+      const s = lstat.isSymbolicLink() ? statSync(full) : lstat;
       if (s.isDirectory()) {
         if (entry.startsWith(".")) continue;
         walk(full);
@@ -80,56 +137,129 @@ function listMarkdownFiles(root: string): string[] {
       }
     }
   };
-  walk(root);
+  walk(ctx.root);
   return out;
 }
 
-function checkTopicFile(root: string, path: string) {
-  const rel = relative(root, path);
+function hasMarkdown(value: string): boolean {
+  return /(`[^`]+`|\*\*?[^*]+\*\*?|__[^_]+__|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|^#{1,6}\s|<[^>\n]+>)/m.test(
+    value,
+  );
+}
+
+function expectedNameForPath(path: string, metadataType?: string): string {
+  const stem = basename(path, ".md");
+  if (metadataType && stem.startsWith(`${metadataType}_`)) {
+    return stem.slice(metadataType.length + 1);
+  }
+  const typePrefix = VALID_TYPES.find((type) => stem.startsWith(`${type}_`));
+  if (typePrefix) return stem.slice(typePrefix.length + 1);
+  return stem;
+}
+
+function findWikiLinks(content: string): string[] {
+  return [...content.matchAll(/\[\[([^\]\n]+)\]\]/g)]
+    .map((match) => match[1])
+    .filter((name): name is string => Boolean(name));
+}
+
+interface TopicCheckResult {
+  path: string;
+  name?: string;
+  wikiLinks: string[];
+}
+
+function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult {
+  const rel = relative(ctx.root, path);
   const content = readFileSync(path, "utf8");
+  const wikiLinks = findWikiLinks(content);
   const fm = parseFrontmatter(content);
   if (!fm.ok) {
-    push("error", rel, `frontmatter: ${fm.error}`);
-    return;
+    push(ctx, "error", rel, `frontmatter: ${fm.error}`);
+    return { path, wikiLinks };
   }
   const data = fm.data ?? {};
-  if (!data.name) push("error", rel, "frontmatter missing `name`");
-  if (!data.description) push("error", rel, "frontmatter missing `description`");
-  else if ((data.description as string).length > DESCRIPTION_CAP)
-    push(
+  const name = typeof data.name === "string" ? data.name : undefined;
+  const description =
+    typeof data.description === "string" ? data.description : undefined;
+  const md = data.metadata as Record<string, unknown> | undefined;
+  const metadataType = typeof md?.type === "string" ? md.type : undefined;
+  if (!name) {
+    push(ctx, "error", rel, "frontmatter missing `name`");
+  } else {
+    const expectedName = expectedNameForPath(path, metadataType);
+    if (name !== expectedName) {
+      push(
+        ctx,
+        "error",
+        rel,
+        `frontmatter \`name\` must match filename stem \`${expectedName}\``,
+      );
+    }
+  }
+  if (!description) {
+    push(ctx, "error", rel, "frontmatter missing `description`");
+  } else {
+    if (description.includes("\n")) {
+      push(ctx, "error", rel, "description must be a single line");
+    }
+    if (hasMarkdown(description)) {
+      push(ctx, "error", rel, "description must not contain markdown formatting");
+    }
+    if (description.length > DESCRIPTION_CAP) {
+      push(
+        ctx,
       "warn",
       rel,
-      `description ${(data.description as string).length} chars exceeds ${DESCRIPTION_CAP} cap`,
-    );
-  const md = data.metadata as Record<string, unknown> | undefined;
+        `description ${description.length} chars exceeds ${DESCRIPTION_CAP} cap`,
+      );
+    }
+  }
   if (!md || !md.type) {
-    push("error", rel, "frontmatter missing `metadata.type`");
+    push(ctx, "error", rel, "frontmatter missing `metadata.type`");
   } else if (!VALID_TYPES.includes(md.type as MemoryType)) {
     push(
+      ctx,
       "error",
       rel,
       `metadata.type "${md.type}" not in [${VALID_TYPES.join(", ")}]`,
     );
   }
+
+  return { path, name, wikiLinks };
 }
 
-function checkIndex(root: string) {
-  const indexPath = join(root, "MEMORY.md");
+function resolveIndexTarget(ctx: ValidationContext, target: string): string | undefined {
+  if (target.trim() === "" || target.includes("\0") || isAbsolute(target)) {
+    return undefined;
+  }
+  const resolved = resolve(ctx.root, target);
+  if (!isInsideRoot(ctx.root, resolved)) return undefined;
+  return resolved;
+}
+
+function checkIndex(ctx: ValidationContext) {
+  const indexPath = join(ctx.root, "MEMORY.md");
   if (!existsSync(indexPath)) {
-    push("error", "MEMORY.md", "index file missing");
+    push(ctx, "error", "MEMORY.md", "index file missing");
     return { entries: new Map<string, number>(), referenced: new Set<string>() };
   }
   const content = readFileSync(indexPath, "utf8");
+  if (content.startsWith("---\n")) {
+    push(ctx, "error", "MEMORY.md", "index must not have frontmatter");
+  }
   const lines = content.split("\n");
   const byteSize = Buffer.byteLength(content, "utf8");
   if (lines.length > INDEX_LINE_CAP)
     push(
+      ctx,
       "warn",
       "MEMORY.md",
       `${lines.length} lines exceeds ${INDEX_LINE_CAP}-line cap`,
     );
   if (byteSize > INDEX_BYTE_CAP)
     push(
+      ctx,
       "warn",
       "MEMORY.md",
       `${(byteSize / 1024).toFixed(1)} KB exceeds ${INDEX_BYTE_CAP / 1024} KB cap`,
@@ -140,8 +270,21 @@ function checkIndex(root: string) {
   const entryRe = /^- \[([^\]]+)\]\(([^)]+)\)(.*)$/;
   lines.forEach((line, i) => {
     const lineNo = i + 1;
+    const trimmed = line.trim();
+    if (
+      trimmed === "" ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("<!--") ||
+      trimmed === "---" ||
+      /^[A-Za-z_][A-Za-z0-9_-]*:\s*/.test(trimmed)
+    ) {
+      return;
+    }
     const m = line.match(entryRe);
-    if (!m) return;
+    if (!m) {
+      push(ctx, "error", "MEMORY.md", "invalid index entry line", lineNo);
+      return;
+    }
     const target = m[2];
     const tail = m[3] ?? "";
     if (!target) return;
@@ -149,16 +292,28 @@ function checkIndex(root: string) {
     referenced.add(target);
     if (line.length > HOOK_LINE_CAP)
       push(
+        ctx,
         "warn",
         "MEMORY.md",
         `line ${line.length} chars exceeds ${HOOK_LINE_CAP}-char hook cap`,
         lineNo,
       );
-    const targetPath = join(root, target);
-    if (!existsSync(targetPath))
-      push("error", "MEMORY.md", `broken link → ${target}`, lineNo);
+    const targetPath = resolveIndexTarget(ctx, target);
+    if (!targetPath) {
+      push(ctx, "error", "MEMORY.md", `link escapes memory root: ${target}`, lineNo);
+      return;
+    }
+    if (!existsSync(targetPath)) {
+      push(ctx, "error", "MEMORY.md", `broken link: ${target}`, lineNo);
+    } else {
+      const realTarget = realpathSync(targetPath);
+      if (!isInsideRoot(ctx.realRoot, realTarget)) {
+        push(ctx, "error", "MEMORY.md", `link escapes memory root: ${target}`, lineNo);
+      }
+    }
     if (!tail.includes("—") && !tail.includes("--"))
       push(
+        ctx,
         "info",
         "MEMORY.md",
         `entry missing em-dash hook: ${target}`,
@@ -166,6 +321,74 @@ function checkIndex(root: string) {
       );
   });
   return { entries, referenced };
+}
+
+export function validateMemoryDirectory(root: string): ValidationReport {
+  const ctx: ValidationContext = {
+    root,
+    realRoot: realpathSync(root),
+    findings: [],
+  };
+
+  const files = listMarkdownFiles(ctx);
+  const topicFiles = files.filter((f) => basename(f) !== "MEMORY.md");
+  const topicResults = topicFiles.map((f) => checkTopicFile(ctx, f));
+  const topicNames = new Set(
+    topicResults.map((result) => result.name).filter((name): name is string => Boolean(name)),
+  );
+  for (const result of topicResults) {
+    for (const wikiLink of result.wikiLinks) {
+      if (!topicNames.has(wikiLink)) {
+        push(
+          ctx,
+          "info",
+          relative(ctx.root, result.path),
+          `unresolved wiki link [[${wikiLink}]]`,
+        );
+      }
+    }
+  }
+  const { referenced } = checkIndex(ctx);
+
+  // Orphan check: topic files not referenced from MEMORY.md
+  const referencedAbs = new Set(
+    [...referenced].map((r) => resolve(ctx.root, r)),
+  );
+  for (const f of topicFiles) {
+    if (!referencedAbs.has(resolve(f))) {
+      push(ctx, "warn", relative(ctx.root, f), "orphan: not referenced from MEMORY.md");
+    }
+  }
+
+  const counts: ValidationCounts = { error: 0, warn: 0, info: 0 };
+  for (const f of ctx.findings) counts[f.severity]++;
+  return {
+    root,
+    topicFileCount: topicFiles.length,
+    findings: ctx.findings,
+    counts,
+  };
+}
+
+function printReport(report: ValidationReport): void {
+  console.log("");
+  console.log(`memory-substrate validator — ${report.root}`);
+  console.log(
+    `${report.topicFileCount} topic files | ${report.counts.error} errors | ${report.counts.warn} warnings | ${report.counts.info} info`,
+  );
+  console.log("");
+
+  const order: Severity[] = ["error", "warn", "info"];
+  for (const sev of order) {
+    const group = report.findings.filter((f) => f.severity === sev);
+    if (group.length === 0) continue;
+    console.log(`=== ${sev.toUpperCase()} (${group.length}) ===`);
+    for (const f of group) {
+      const loc = f.line ? `${f.file}:${f.line}` : f.file;
+      console.log(`  ${loc}  ${f.msg}`);
+    }
+    console.log("");
+  }
 }
 
 function main() {
@@ -179,45 +402,9 @@ function main() {
     process.exit(2);
   }
 
-  const files = listMarkdownFiles(root);
-  const topicFiles = files.filter((f) => basename(f) !== "MEMORY.md");
-  for (const f of topicFiles) checkTopicFile(root, f);
-  const { referenced } = checkIndex(root);
-
-  // Orphan check: topic files not referenced from MEMORY.md
-  const referencedAbs = new Set(
-    [...referenced].map((r) => join(root, r)),
-  );
-  for (const f of topicFiles) {
-    if (!referencedAbs.has(f)) {
-      push("warn", relative(root, f), "orphan: not referenced from MEMORY.md");
-    }
-  }
-
-  // Summary
-  const counts = { error: 0, warn: 0, info: 0 };
-  for (const f of findings) counts[f.severity]++;
-
-  console.log("");
-  console.log(`memory-substrate validator — ${root}`);
-  console.log(
-    `${topicFiles.length} topic files | ${counts.error} errors | ${counts.warn} warnings | ${counts.info} info`,
-  );
-  console.log("");
-
-  const order: Severity[] = ["error", "warn", "info"];
-  for (const sev of order) {
-    const group = findings.filter((f) => f.severity === sev);
-    if (group.length === 0) continue;
-    console.log(`=== ${sev.toUpperCase()} (${group.length}) ===`);
-    for (const f of group) {
-      const loc = f.line ? `${f.file}:${f.line}` : f.file;
-      console.log(`  ${loc}  ${f.msg}`);
-    }
-    console.log("");
-  }
-
-  process.exit(counts.error > 0 ? 1 : 0);
+  const report = validateMemoryDirectory(root);
+  printReport(report);
+  process.exit(report.counts.error > 0 ? 1 : 0);
 }
 
-main();
+if (import.meta.main) main();
