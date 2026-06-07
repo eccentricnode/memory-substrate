@@ -7,7 +7,10 @@ import {
   resolveRuntimeConfig,
 } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore } from "../adapters/pi-dev/extension/core.ts";
-import { INJECTION_MAX_LINES } from "../adapters/pi-dev/extension/injection.ts";
+import {
+  INJECTION_MAX_BYTES,
+  INJECTION_MAX_LINES,
+} from "../adapters/pi-dev/extension/injection.ts";
 
 const tmpRoots: string[] = [];
 
@@ -25,6 +28,16 @@ function tempDir(): string {
 
 function writeIndex(root: string, lines: string[]): void {
   writeFileSync(join(root, "MEMORY.md"), `# Memory\n\n${lines.join("\n")}\n`);
+}
+
+function recordingState() {
+  const entries: Array<{ type: string; data: unknown }> = [];
+  return {
+    entries,
+    appendEntry(type: string, data: unknown) {
+      entries.push({ type, data });
+    },
+  };
 }
 
 describe("pi-dev runtime config", () => {
@@ -67,6 +80,21 @@ describe("pi-dev runtime config", () => {
     expect(config.enabled).toBe(true);
     expect(config.memoryRoot).toBe(join(cwd, ".memory"));
     expect(config.model).toBe(DEFAULT_WORKER_MODEL);
+  });
+
+  test("resolves the default memory root under the configured home directory", () => {
+    const homeDir = tempDir();
+    const defaultRoot = join(homeDir, ".memory");
+    mkdirSync(defaultRoot);
+
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: {},
+      homeDir,
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.memoryRoot).toBe(defaultRoot);
   });
 
   test("records invalid roots and leaves memory unavailable", () => {
@@ -254,5 +282,51 @@ describe("memory injection", () => {
         .filter((line) => line.startsWith("- [Ralph")).length ?? 0;
 
     expect(injectedEntryCount).toBe(INJECTION_MAX_LINES);
+  });
+
+  test("injection is capped at four KB and records truncation audit", () => {
+    const root = tempDir();
+    const state = recordingState();
+    const longHook = "ralph durable byte cap ".repeat(24);
+    writeIndex(
+      root,
+      Array.from(
+        { length: INJECTION_MAX_LINES },
+        (_, i) => `- [Ralph ${i}](project_ralph-${i}.md) — ${longHook}${i}`,
+      ),
+    );
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      state,
+    });
+
+    const result = core.handleBeforeAgentStart({
+      prompt: "Ralph durable byte cap",
+      systemPrompt: "",
+    });
+    const injectionText = result?.systemPrompt ?? "";
+    const auditRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-injection",
+    )?.data as
+      | {
+          byteLength: number;
+          byteCap: number;
+          lineCap: number;
+          selectedLineCount: number;
+          truncated: boolean;
+        }
+      | undefined;
+
+    if (!auditRecord) throw new Error("missing injection audit record");
+    expect(Buffer.byteLength(injectionText, "utf8")).toBeLessThanOrEqual(
+      INJECTION_MAX_BYTES,
+    );
+    expect(auditRecord.byteLength).toBe(Buffer.byteLength(injectionText, "utf8"));
+    expect(auditRecord.byteCap).toBe(INJECTION_MAX_BYTES);
+    expect(auditRecord.lineCap).toBe(INJECTION_MAX_LINES);
+    expect(auditRecord.selectedLineCount).toBeGreaterThan(0);
+    expect(auditRecord.selectedLineCount).toBeLessThan(INJECTION_MAX_LINES);
+    expect(auditRecord.truncated).toBe(true);
   });
 });

@@ -1,6 +1,8 @@
 import { resolveRuntimeConfig, type RuntimeConfig, type RuntimeEnv } from "./config.ts";
 import {
   buildMemoryInjection,
+  INJECTION_MAX_BYTES,
+  INJECTION_MAX_LINES,
   matchedIgnoreMemoryRequest,
   type InjectionFileSystem,
 } from "./injection.ts";
@@ -119,9 +121,20 @@ export interface FlushMemoryOptions {
   drain?: boolean;
 }
 
+export interface InjectionAuditRecord {
+  selectedLineCount: number;
+  byteLength: number;
+  lineCap: number;
+  byteCap: number;
+  truncated: boolean;
+  selectedLines: string[];
+  createdAt: number;
+}
+
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
 const MODE_AUDIT_TYPE = "memory-substrate-mode";
+const INJECTION_AUDIT_TYPE = "memory-substrate-injection";
 const AUDIT_STRING_CAP = 300;
 const AUDIT_ARRAY_ITEM_CAP = 5;
 const AUDIT_OBJECT_KEY_CAP = 12;
@@ -261,6 +274,16 @@ export class MemoryExtensionCore {
       fs: this.fs,
     });
     if (!injection) return undefined;
+
+    this.recordInjectionAudit({
+      selectedLineCount: injection.selectedLines.length,
+      byteLength: Buffer.byteLength(injection.text, "utf8"),
+      lineCap: INJECTION_MAX_LINES,
+      byteCap: INJECTION_MAX_BYTES,
+      truncated: injection.truncated,
+      selectedLines: injection.selectedLines,
+      createdAt: this.scheduler.now(),
+    });
 
     const base = event.systemPrompt.trimEnd();
     return {
@@ -570,6 +593,10 @@ export class MemoryExtensionCore {
 
   private recordWorkerAudit(record: WorkerAuditRecord): void {
     this.state?.appendEntry(WORKER_AUDIT_TYPE, record);
+  }
+
+  private recordInjectionAudit(record: InjectionAuditRecord): void {
+    this.state?.appendEntry(INJECTION_AUDIT_TYPE, record);
   }
 
   private auditItems(items: MemoryBatchItem[]): BatchItemAuditSummary[] {

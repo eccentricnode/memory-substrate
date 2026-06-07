@@ -14,6 +14,7 @@
   - Completed: queue and worker audit records include bounded payload summaries and item summaries.
   - Completed: prompt, config, and flush ignore-mode transitions are audited for false-positive debugging.
   - Completed: ignore mode injects a protective no-cite/no-apply instruction while avoiding memory reads.
+  - Follow-up: dry-run writes nothing and returns `proposedPaths`, but stdout currently reports only the proposed write count rather than detailed proposed paths/content inline.
   - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 52 pass, 253 assertions across 8 files.
 
@@ -30,8 +31,10 @@
   - Status: completed and test-covered.
   - Completed: `before_agent_start` reads `MEMORY.md`, ranks index lines by prompt overlap, and injects attributed snippets only.
   - Completed: disabled and ignore modes inject nothing.
+  - Completed: injection audit records include selected line count, byte length, caps, selected lines, and truncation status.
   - Bounds: no topic-file bodies; cap at 12 index lines or 4 KB, whichever is smaller.
-  - Unresolved review findings: add explicit 4 KB cap/truncation audit coverage.
+  - Verified: focused tests passed via the single test subagent: `bun test tests/config-and-injection.test.ts`; exit 0, 13 pass.
+  - Verified: green gate passed via the single test subagent: `bunx tsc --noEmit && bun test`; exit 0, 56 pass.
 
 - P0 — Host safety boundaries.
   - Status: preserved through the verified implementation.
@@ -39,7 +42,7 @@
   - Preserve: child workers must receive `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding must keep failing closed.
   - Preserve: all writes stay confined to the resolved memory root and refuse symlink/out-of-root escapes.
   - Preserve: default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
-  - Unresolved review findings: add default-root coverage if not already covered.
+  - Verified: default `~/.memory` root resolution is covered in `tests/config-and-injection.test.ts`.
 
 - P1 — Reference validator.
   - Status: completed and verified.
