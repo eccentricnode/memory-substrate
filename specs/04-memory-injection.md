@@ -14,6 +14,10 @@ context-saving purpose of the substrate.
 ### Trigger and surface
 - Relevance is evaluated at the start of an agent turn against the incoming prompt. (Host
   surface: `before_agent_start`, which can inject a message or modify the system prompt.)
+- For pi.dev, this bounded turn-start injection is the adapter-specific delivery of SPEC
+  §4.1 bootstrap context. The extension may initialize or cache memory state at session
+  start, but model-visible memory is injected only as relevant index snippets under this
+  spec's caps, not as an unconditional full-index dump.
 - When nothing relevant is found, the extension injects nothing and does not alter the prompt.
 
 ### Relevance and size

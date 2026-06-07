@@ -1,11 +1,18 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P0 — Current increment: scaffold plus offline tests.
-  - Status: completed.
+- P0 — Current increment: forced-write lifecycle batching.
+  - Status: partially completed.
   - Completed: `package.json` and `tsconfig.json` added for the Bun-compatible TypeScript scaffold.
   - Completed: `adapters/pi-dev/extension/` now has config, core, injection, and index modules.
-  - Completed: offline deterministic coverage added for config/modes and memory injection only.
-  - Verified: `bunx tsc --noEmit && bun test` passed with exactly one test subagent.
+  - Completed: offline deterministic coverage added for config/modes, memory injection, and forced-write lifecycle batching.
+  - Completed: `agent_end` and `session_before_compact` events are queued through lifecycle batching.
+  - Completed: debounce and max-batch behavior are implemented and covered by offline tests.
+  - Completed: worker execution is routed through an injected worker-runner contract so tests do not call a real model.
+  - Completed: worker requests carry the recursion-guard env requirement (`PI_MEMORY_ENABLED=0`).
+  - Completed: unsupported `pi.exec` env-forwarding path fails closed instead of spawning unsafely.
+  - Completed: audit entries record queued batches and worker-run results outside LLM context.
+  - Verified: `bunx tsc --noEmit` passed.
+  - Verified: `bun test` passed.
   - Constraints: no real model calls; no global pi extension install; use exactly one test runner for the green gate.
 
 - P0 — Config and mode gates.
@@ -13,7 +20,7 @@
   - Cover: enabled/disabled, ignore, dry-run, memory root, model default, debounce/max batch defaults.
   - Required: `PI_MEMORY_ENABLED=0` means no bootstrap, reads, writes, injection, queueing, worker invocation, or validation.
   - Required: ignore mode means no injection, no writes, and no citations/application.
-  - Remaining P0: lifecycle batching, worker invocation, validator command wiring, and write-path enforcement still need implementation coverage.
+  - Remaining P0: live env-capable worker implementation, actual write decisions/two-step save, validator command/after-write wiring, and stronger confinement still need implementation coverage.
 
 - P0 — Memory injection.
   - Status: first slice implemented and test-covered.
@@ -24,18 +31,20 @@
 - P0 — Host safety boundaries to preserve while scaffolding.
   - Status: partially preserved by the scaffold; remaining write-path work pending.
   - No global install into `~/.pi/agent/extensions/`.
-  - Worker recursion guard must disable the extension in subprocesses; if env override support is unavailable, fail closed.
-  - Extension and worker writes must stay confined to the resolved memory root except host-owned extension state.
-  - Forced writes must remain two-step: topic file plus `MEMORY.md` pointer.
+  - Completed: queued worker requests include `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding fails closed.
+  - Remaining: implement a live env-capable worker launcher without violating the recursion guard.
+  - Remaining: extension and worker writes must stay confined to the resolved memory root except host-owned extension state.
+  - Remaining: forced writes must remain two-step: topic file plus `MEMORY.md` pointer.
   - Default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
 
 - P0 — Remaining forced-write implementation.
-  - Status: pending after scaffold slice.
-  - Add lifecycle batching for event collection and debounce/max batch handling.
-  - Add worker forced writes with recursion guard and the `claude-haiku-4-5` default model.
-  - Wire the reference validator command after writes.
-  - Add dry-run audit flow for proposed changes without live model writes.
-  - Complete write confinement for all extension and worker write paths.
+  - Status: partially implemented by lifecycle/audit slice; live write path pending.
+  - Completed: lifecycle batching collects `agent_end` and `session_before_compact` events.
+  - Completed: debounce/max-batch behavior, injected worker-runner contract, recursion-guard env in worker requests, fail-closed unsupported `pi.exec` env path, and audit entries are implemented and covered by offline tests.
+  - Remaining: implement live env-capable worker execution with the `claude-haiku-4-5` default model and `PI_MEMORY_MODEL` override.
+  - Remaining: implement actual write decisions plus the required two-step save: topic file followed by `MEMORY.md` pointer.
+  - Remaining: wire the reference validator command and after-write validation.
+  - Remaining: strengthen root-confinement checks for all extension and worker write paths.
 
 - P1 — Harden the reference validator to match SPEC.
   - Status: pending for remaining SPEC gaps.

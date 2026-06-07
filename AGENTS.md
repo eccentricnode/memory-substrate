@@ -27,7 +27,8 @@ A loop is green only when BOTH pass with **exactly 1** test subagent:
    (SPEC §4.5). Ignore mode (SPEC §4.4) ⇒ no writes, no citations.
 3. **Recursion guard.** The background worker is a `pi` subprocess; it MUST run with the
    extension disabled (pass `PI_MEMORY_ENABLED=0` in its env) so it cannot re-trigger itself.
-   Verify `pi.exec` env support before relying on this; if unsupported, fail closed.
+   Installed pi.dev v0.78.1 `pi.exec` / `ExecOptions` has no env forwarding; fail closed
+   unless using a safe env-capable launcher.
 4. **No global install during build/test.** Do NOT copy the extension into
    `~/.pi/agent/extensions/` — it would load into every pi session. Develop and test it
    project-local (`.pi/extensions/` or via the test harness) only.

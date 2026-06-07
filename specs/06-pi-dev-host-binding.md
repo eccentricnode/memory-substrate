@@ -9,6 +9,11 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 
 ## Behavioral contract
 
+### Required pi.dev capabilities
+- SPEC §6.2 treats forced-write hooks as optional for adapters in general. For this pi.dev
+  target they are required: pi.dev exposes turn-end and pre-compaction hook surfaces, so the
+  adapter must implement forced writes through those surfaces or fail its target contract.
+
 ### Memory root precedence
 - The resolved memory root is chosen once per extension runtime and reused by every handler.
 - Explicit operator configuration has precedence over defaults.
@@ -41,7 +46,8 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 ### Validator command surface
 - The pi.dev adapter exposes a validate operation that runs the reference validator against the resolved memory root.
 - Disabled mode suppresses validation because disabled mode means no memory I/O.
-- Validator errors fail the operation; warnings remain advisory for v0.1.
+- Invalid frontmatter types are validator errors for this adapter. Validator errors fail the
+  operation; warnings remain advisory for v0.1.
 
 ## Verification signals
 - Root precedence tests prove explicit configuration wins and default resolution is stable.

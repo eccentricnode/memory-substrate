@@ -29,6 +29,10 @@ spec-conformant form. Default-deny is the governing bias.
 ### Spec-conformant writes
 - Every written memory carries valid frontmatter — name, one-line description ≤200 chars,
   and a type of user / feedback / project / reference (SPEC §2.2).
+- The pi.dev adapter emits filenames as `<type>_<name>.md`, where `<name>` is the
+  kebab-case frontmatter `name`. The type prefix is not part of `name`.
+- An unrecognized frontmatter type is a write error for this adapter. The worker must choose
+  one of the four SPEC types or produce no write; it must never coerce an unknown type.
 - Each write performs the two-step save: topic file then `MEMORY.md` pointer; a write that
   updates one without the other is an error (SPEC §3.3).
 - For feedback and project types the body leads with the fact, then why and how-to-apply
