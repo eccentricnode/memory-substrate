@@ -45,6 +45,7 @@
   - Preserve: child workers must receive `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding must keep failing closed.
   - Preserve: all writes stay confined to the resolved memory root and refuse symlink/out-of-root escapes.
   - Preserve: default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
+  - Completed: specs/03 and specs/06 were clarified to match the implemented no-tools live worker, JSON draft output, and root-confined applicator safety model; one write authority enforces canonical path checks, dry-run, two-step saves, and validation.
   - Verified: default `~/.memory` root resolution is covered in `tests/config-and-injection.test.ts`.
 
 - P1 — Reference validator.

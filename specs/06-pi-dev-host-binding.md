@@ -30,7 +30,11 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 - The worker must be launched only by a mechanism that can set the child environment to disable this extension inside the child process.
 - If the selected launch mechanism cannot prove that the disable flag reaches the child process, the extension records a refused worker run and does not spawn.
 - The worker receives only the candidate batch, the resolved memory root, the dry-run setting, and the write protocol.
-- The worker may use file read/search/edit/write tools only for the resolved memory root. Any broader tool access is a test failure.
+- The live worker runs without file tools and returns structured drafts only. The extension
+  applicator is the sole write authority because it can canonicalize targets, enforce
+  dry-run, perform the two-step save, and run the validator.
+- Any future worker runner that grants file tools must still confine them to the resolved
+  memory root; broader tool access is a test failure.
 
 ### Injection bounds
 - Injected memory uses index snippets only, never topic-file bodies.
