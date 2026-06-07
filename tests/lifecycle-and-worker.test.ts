@@ -296,6 +296,121 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(worker.requests[0]?.env.PI_MEMORY_DRY_RUN).toBe("1");
   });
 
+  test("queue and worker audit records expose bounded schema fields outside prompt injection", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n- [Audit Contract](audit_contract.md) — audit contract injection sentinel\n",
+    );
+    const state = recordingState();
+    const worker = recordingWorker({
+      exitCode: 0,
+      stdout: `stdout-start ${"s".repeat(650)} stdout-tail-sentinel`,
+      stderr: `stderr-start ${"e".repeat(100)} stderr-tail-sentinel`,
+      changedPaths: [join(root, "audit_contract.md")],
+      proposedPaths: [join(root, "MEMORY.md"), join(root, "audit_contract.md")],
+      validator: {
+        exitCode: 0,
+        stdout: "validator ok",
+        stderr: "validator warning",
+      },
+    });
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_DRY_RUN: "1" },
+      state,
+      worker,
+    });
+
+    await core.handleAgentEnd({ messages: ["The durable decision is audit schema."] });
+    await core.flush();
+
+    const queueRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-queue",
+    )?.data as
+      | {
+          id?: string;
+          trigger?: string;
+          createdAt?: number;
+          messageCount?: number;
+          queueDepth?: number;
+          payload?: unknown;
+        }
+      | undefined;
+    const runRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as
+      | {
+          batchId?: string;
+          reason?: string;
+          itemCount?: number;
+          items?: Array<{
+            id?: string;
+            trigger?: string;
+            createdAt?: number;
+            messageCount?: number;
+            payload?: unknown;
+          }>;
+          model?: string;
+          dryRun?: boolean;
+          status?: string;
+          exitCode?: number;
+          changedPaths?: string[];
+          proposedPaths?: string[];
+          validatorResult?: { exitCode?: number; outputTail?: string };
+          error?: string;
+          outputTail?: string;
+        }
+      | undefined;
+
+    expect(queueRecord).toMatchObject({
+      trigger: "agent_end",
+      messageCount: 1,
+      queueDepth: 1,
+    });
+    expect(queueRecord?.id).toMatch(/^item-\d+$/);
+    expect(typeof queueRecord?.createdAt).toBe("number");
+    expect(queueRecord?.payload).toBeUndefined();
+
+    expect(runRecord).toMatchObject({
+      reason: "manual",
+      itemCount: 1,
+      model: "claude-haiku-4-5",
+      dryRun: true,
+      status: "completed",
+      exitCode: 0,
+      changedPaths: [join(root, "audit_contract.md")],
+      proposedPaths: [join(root, "MEMORY.md"), join(root, "audit_contract.md")],
+      validatorResult: {
+        exitCode: 0,
+        outputTail: "validator ok\nvalidator warning",
+      },
+    });
+    expect(runRecord?.batchId).toMatch(/^batch-\d+$/);
+    expect(runRecord?.items).toHaveLength(1);
+    expect(runRecord?.items?.[0]).toMatchObject({
+      id: queueRecord?.id,
+      trigger: "agent_end",
+      createdAt: queueRecord?.createdAt,
+      messageCount: 1,
+    });
+    expect(runRecord?.items?.[0]?.payload).toBeUndefined();
+    expect(runRecord?.error).toBeUndefined();
+    expect(runRecord?.outputTail).toContain("stdout-tail-sentinel");
+    expect(runRecord?.outputTail).toContain("stderr-tail-sentinel");
+    expect(runRecord?.outputTail).not.toContain("stdout-start");
+    expect(runRecord?.outputTail?.length).toBeLessThanOrEqual(800);
+
+    const injection = core.handleBeforeAgentStart({
+      prompt: "audit contract",
+      systemPrompt: "base prompt",
+    });
+    expect(injection?.systemPrompt).toContain("audit contract injection sentinel");
+    expect(injection?.systemPrompt).not.toContain("memory-substrate-worker-run");
+    expect(injection?.systemPrompt).not.toContain("stdout-tail-sentinel");
+    expect(injection?.systemPrompt).not.toContain(join(root, "audit_contract.md"));
+  });
+
   test("worker launch fails closed when env forwarding is unsupported", async () => {
     const state = recordingState();
     const worker: MemoryWorkerRunner = {

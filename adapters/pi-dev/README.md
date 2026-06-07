@@ -17,7 +17,7 @@ The extension:
   it cannot recurse into itself.
 - Applies structured worker drafts itself, confined to the memory root, then runs
   `reference/validator.ts`.
-- Registers `/memory-status` and `/memory-validate`.
+- Registers `/memory-status`, `/memory-validate`, and `/memory-flush`.
 
 The worker default model is `claude-haiku-4-5`; set `PI_MEMORY_MODEL` to override it.
 
