@@ -5,7 +5,7 @@
   - Completed: resolved the model-default contract conflict in favor of provider-qualified `openai-codex/gpt-5.3-codex-spark`. Live probes on 2026-06-08 showed bare/Anthropic `claude-haiku-4-5` fails third-party usage auth, while Spark succeeds; specs/docs/default constant/tests now align.
   - Completed: live worker performs local `pi --list-models` preflight and fails before the worker prompt for bare, ambiguous, or absent `PI_MEMORY_MODEL` values.
   - Completed: live worker now performs an authenticated no-tools reachability preflight for the selected default or `PI_MEMORY_MODEL` after registry validation and before sending candidate batch content; failures fail closed with retained queue and clear audit/status.
-  - Open: add the opt-in live pi.dev integration harness required by specs/07: disposable memory root, real extension load, durable/chatter/disabled smoke cases, model/mode assertions, validator-clean output, and explicit no-out-of-root-write checks; keep it out of the default `bun test` green gate.
+  - Completed: added the opt-in live pi.dev integration harness required by specs/07 as `tests/pi-dev-live-integration.test.ts` plus `bun run test:pi-live`; it uses disposable memory/session roots, real extension loading, no-tools pi sessions, durable/chatter/disabled/dry-run/bad-model assertions, validator-clean output checks, audit path confinement checks, and default-root before/after snapshots while staying out of the default `bun test` green gate.
   - Completed: applicator now fits hooks to rendered `MEMORY.md` pointer lines and refuses prefix-only overflow before mutation or dry-run output.
   - Completed: strengthened dedupe fallback beyond exact-match detection; the applicator now performs conservative keyword-overlap matching and preserves existing topic filename/name/type identity when updating a matched memory.
   - Completed: enabled mode now treats a missing, directory, or symlinked `MEMORY.md` as unavailable; the applicator refuses implicit index creation in live and dry-run planning; specs document why.
@@ -46,6 +46,7 @@
   - Verified: worker draft/audit contracts focused tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/live-worker.test.ts tests/validate-command.test.ts`; 59 pass, 336 expectations.
   - Verified: local typecheck passed: `bunx tsc --noEmit`.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 87 pass, 457 expectations.
+  - Verified: live harness remains opt-in and skipped by the offline green gate: `bunx tsc --noEmit && bun test`; 87 pass, 7 skip, 457 expectations across 94 tests.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

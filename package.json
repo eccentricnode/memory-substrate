@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "bun test",
+    "test:pi-live": "PI_MEMORY_INTEGRATION=1 bun test tests/pi-dev-live-integration.test.ts",
     "typecheck": "bunx tsc --noEmit",
     "validate": "bun reference/validator.ts",
     "compact": "bun reference/compactor.ts",

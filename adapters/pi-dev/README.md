@@ -67,6 +67,14 @@ Use the repo green gate:
 bunx tsc --noEmit && bun test
 ```
 
+Run the real pi.dev integration harness only when you intentionally want paid/live model
+verification. It loads the extension with `--no-tools` against disposable memory and
+session roots, then checks durable, chatter, disabled, dry-run, and bad-model behavior.
+
+```bash
+bun run test:pi-live
+```
+
 Validate a memory root directly with:
 
 ```bash

@@ -13,6 +13,7 @@ capability. Source: `adapters/pi-dev/extension/`. Shared lib: `reference/`. Host
 - Test:       `bun test`
 - Run validator: `bun reference/validator.ts <memory_root>`
 - Run migrator:  `bun reference/migrator.ts <pai_root> <output_dir>`
+- Opt-in live pi.dev harness: `bun run test:pi-live` (real pi/model calls; not green gate)
 - Inspect pi extension API: `~/.local/share/mise/installs/node/25.1.0/lib/node_modules/@mariozechner/pi-coding-agent/docs/extensions.md`
 - Working extension template to copy patterns from: `~/Work/active/pai-lite/extensions/blueprint-loader.ts`
 - Available models: `pi --list-models` (default must be provider-qualified; see invariant 6)
