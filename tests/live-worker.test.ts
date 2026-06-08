@@ -93,6 +93,35 @@ Stale live rule.
   );
 }
 
+function writeOversizedMemoryRoot(root: string): void {
+  const pointers: string[] = ["# Memory", "", "FULL_INDEX_SENTINEL_DO_NOT_SEND"];
+  for (let index = 0; index < 120; index++) {
+    const name =
+      index === 119
+        ? "zz-live-memory-root-confined"
+        : `bulk-snapshot-entry-${index}`;
+    const description =
+      index === 119
+        ? "keep live memory writes root-confined"
+        : `bulk snapshot entry ${index} ${"x".repeat(180)}`;
+    const path = `project_${name}.md`;
+    writeFileSync(
+      join(root, path),
+      `---
+name: ${name}
+description: ${description}
+metadata:
+  type: project
+---
+
+${description}
+`,
+    );
+    pointers.push(`- [${name}](${path}) — ${description}`);
+  }
+  writeFileSync(join(root, "MEMORY.md"), `${pointers.join("\n")}\n`);
+}
+
 function recordingProcess(
   stdout: string,
 ): LivePiProcessExecutor & {
@@ -170,6 +199,58 @@ describe("live pi memory worker runner", () => {
     expect(topicFiles(root)).toHaveLength(1);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
       "project_live-memory-root-confined.md",
+    );
+  });
+
+  test("bounds existing-memory snapshot while preserving relevant dedupe fields", async () => {
+    const root = memoryRoot();
+    writeOversizedMemoryRoot(root);
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(0);
+    const prompt = process.calls[1]?.args.at(-1) ?? "";
+    const snapshotText =
+      prompt.match(/Existing memory snapshot:\n([\s\S]+?)\n\nCandidate batch:/)?.[1] ??
+      "";
+    const snapshot = JSON.parse(snapshotText) as {
+      limits: { maxBytes: number; maxTopics: number };
+      truncated: boolean;
+      topicCount: number;
+      includedTopicCount: number;
+      index: { pointerLineCount: number; includedPointerLineCount: number };
+      topics: Array<{
+        relativePath: string;
+        name?: string;
+        description?: string;
+        type?: string;
+        indexed?: boolean;
+        indexLine?: string;
+      }>;
+    };
+
+    expect(Buffer.byteLength(snapshotText, "utf8")).toBeLessThanOrEqual(
+      snapshot.limits.maxBytes,
+    );
+    expect(snapshot.limits.maxBytes).toBe(8 * 1024);
+    expect(snapshot.limits.maxTopics).toBe(40);
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.topicCount).toBe(120);
+    expect(snapshot.includedTopicCount).toBeLessThanOrEqual(40);
+    expect(snapshot.index.pointerLineCount).toBe(120);
+    expect(snapshot.index.includedPointerLineCount).toBeLessThanOrEqual(40);
+    expect(prompt).not.toContain("FULL_INDEX_SENTINEL_DO_NOT_SEND");
+    expect(snapshot.topics[0]).toMatchObject({
+      relativePath: "project_zz-live-memory-root-confined.md",
+      name: "zz-live-memory-root-confined",
+      description: "keep live memory writes root-confined",
+      type: "project",
+      indexed: true,
+    });
+    expect(snapshot.topics[0]?.indexLine).toContain(
+      "project_zz-live-memory-root-confined.md",
     );
   });
 

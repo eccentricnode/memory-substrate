@@ -1,10 +1,5 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P0 — Bounded existing-memory snapshot for the live worker.
-  - Status: open; `specs/03-background-worker.md` permits only a bounded existing-memory snapshot, but `existingMemorySnapshot()` serializes the full index plus every topic frontmatter into the live worker prompt.
-  - Plan: cap snapshot by bytes and topic count, always include enough index/dedupe context to update existing memories, and audit truncation without putting full memory corpus into the worker prompt.
-  - Plan: add a regression with an oversized memory root proving the worker prompt is bounded and still includes deterministic dedupe fields.
-
 - P1 — Dry-run proposal validation.
   - Status: open; dry-run planning checks caps and prints proposed topic/index content but returns before invoking the reference validator.
   - Plan: validate a temporary/proposed memory-root state before dry-run stdout, while leaving the real memory root unchanged.
@@ -56,6 +51,7 @@
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
 
 - Completed — Core pi-dev forced-write surface.
+  - Live worker existing-memory snapshots are bounded to 8 KB / 40 topics, rank topic metadata against candidate batch keywords for dedupe, exclude raw non-pointer index content, and report truncation counts/flags; this keeps forced-write prompts from leaking or bloating the memory corpus. Regression coverage in `tests/live-worker.test.ts` passed, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 99 pass, 7 skip, 0 fail, 106 tests across 9 files.
   - Worker draft normalization now refuses over-cap upsert descriptions and delete reasons instead of truncating malformed live worker JSON into accepted writes; hook fitting remains limited to rendered `MEMORY.md` pointer cap behavior. Focused `bun test tests/worker-write.test.ts` passed with 28 pass, and full `bunx tsc --noEmit && bun test` passed with 98 pass, 7 skip, 0 fail.
   - `/memory-refresh` now writes reviewable compaction proposals only under `.memory-substrate/refresh-proposal` inside the resolved memory root, rejects explicit outside-root output, and keeps hidden proposals out of validator topic scans; `bunx tsc --noEmit && bun test` passed with 96 pass and 7 skip.
   - Model preflight now validates only provider-qualified shape; `worker.ts` no longer calls `pi --list-models`, reachability comes from the no-tools subprocess, docs/specs/tests were updated, and `bunx tsc --noEmit && bun test` passed with 94 pass and 7 skip.

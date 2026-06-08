@@ -136,6 +136,9 @@ const HOOK_CAP = 150;
 const INDEX_POINTER_LINE_CAP = 150;
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
+const EXISTING_MEMORY_SNAPSHOT_BYTE_CAP = 8 * 1024;
+const EXISTING_MEMORY_SNAPSHOT_TOPIC_CAP = 40;
+const SNAPSHOT_FIELD_CAP = 240;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
 const LIVE_WORKER_REACHABILITY_PROMPT =
   "Memory worker model reachability check. Reply exactly: OK";
@@ -371,6 +374,13 @@ function parseTopicFrontmatter(content: string): {
     .replace(/^["']|["']$/g, "");
   const type = frontmatter.match(/^\s*type:\s*(.+)$/m)?.[1]?.trim();
   return { name, description, type };
+}
+
+function boundedSnapshotField(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= SNAPSHOT_FIELD_CAP) return normalized;
+  return normalized.slice(0, SNAPSHOT_FIELD_CAP - 1).trimEnd();
 }
 
 function normalizeKeyword(value: string): string {
@@ -891,31 +901,180 @@ async function preflightLiveWorkerReachability(
   };
 }
 
-function existingMemorySnapshot(root: string): string {
+interface IndexPointerSnapshot {
+  relativePath: string;
+  line: string;
+}
+
+interface TopicSnapshot {
+  relativePath: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  indexed: boolean;
+  indexLine?: string;
+}
+
+function indexPointerLines(index: string): IndexPointerSnapshot[] {
+  return index
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^- \[[^\]]+\]\(([^)]+)\)/);
+      if (!match?.[1]) return undefined;
+      return {
+        relativePath: match[1],
+        line: boundedSnapshotField(line) ?? "",
+      };
+    })
+    .filter((line): line is IndexPointerSnapshot => line !== undefined);
+}
+
+function snapshotRank(
+  candidateKeywords: Set<string>,
+  topic: TopicSnapshot,
+): number {
+  if (candidateKeywords.size === 0) return topic.indexed ? 1 : 0;
+  const topicKeywords = descriptionKeywords(
+    [
+      topic.relativePath,
+      topic.name,
+      topic.description,
+      topic.type,
+      topic.indexLine,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  let score = 0;
+  for (const keyword of candidateKeywords) {
+    if (topicKeywords.has(keyword)) score++;
+  }
+  if (topic.indexed && score > 0) score += 0.25;
+  return score;
+}
+
+function renderSnapshot(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function emptyExistingMemorySnapshot(index: string, topicCount: number): string {
+  const pointerLineCount = indexPointerLines(index).length;
+  return renderSnapshot({
+    limits: {
+      maxBytes: EXISTING_MEMORY_SNAPSHOT_BYTE_CAP,
+      maxTopics: EXISTING_MEMORY_SNAPSHOT_TOPIC_CAP,
+    },
+    index: {
+      byteLength: Buffer.byteLength(index, "utf8"),
+      pointerLineCount,
+      includedPointerLineCount: 0,
+      truncated: pointerLineCount > 0,
+    },
+    topics: [],
+    topicCount,
+    includedTopicCount: 0,
+    truncated: topicCount > 0 || pointerLineCount > 0,
+  });
+}
+
+function existingMemorySnapshot(root: string, candidateText: string): string {
   let index = "";
   try {
     index = readFileSync(safePath(root, "MEMORY.md"), "utf8");
   } catch {
     index = "";
   }
+  const pointers = indexPointerLines(index);
+  const pointerByPath = new Map(
+    pointers.map((pointer) => [pointer.relativePath, pointer.line]),
+  );
+  const candidateKeywords = descriptionKeywords(candidateText);
 
   const topics = topicFiles(root)
     .map((path) => {
       const content = readFileSync(path, "utf8");
       const frontmatter = parseTopicFrontmatter(content);
+      const relativePath = relativeTopicPath(root, path);
       return {
-        relativePath: relativeTopicPath(root, path),
-        name: frontmatter.name,
-        description: frontmatter.description,
-        type: frontmatter.type,
+        relativePath,
+        name: boundedSnapshotField(frontmatter.name),
+        description: boundedSnapshotField(frontmatter.description),
+        type: boundedSnapshotField(frontmatter.type),
+        indexed: pointerByPath.has(relativePath),
+        indexLine: pointerByPath.get(relativePath),
       };
     })
-    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    .sort((a, b) => {
+      const scoreDelta =
+        snapshotRank(candidateKeywords, b) - snapshotRank(candidateKeywords, a);
+      if (scoreDelta !== 0) return scoreDelta;
+      if (a.indexed !== b.indexed) return a.indexed ? -1 : 1;
+      return a.relativePath.localeCompare(b.relativePath);
+    });
 
-  return JSON.stringify({ index, topics }, null, 2);
+  const snapshot = {
+    limits: {
+      maxBytes: EXISTING_MEMORY_SNAPSHOT_BYTE_CAP,
+      maxTopics: EXISTING_MEMORY_SNAPSHOT_TOPIC_CAP,
+    },
+    index: {
+      byteLength: Buffer.byteLength(index, "utf8"),
+      pointerLineCount: pointers.length,
+      includedPointerLineCount: 0,
+      truncated: pointers.length > 0,
+    },
+    topics: [] as TopicSnapshot[],
+    topicCount: topics.length,
+    includedTopicCount: 0,
+    truncated: topics.length > 0,
+  };
+
+  for (const topic of topics.slice(0, EXISTING_MEMORY_SNAPSHOT_TOPIC_CAP)) {
+    const nextTopics = [...snapshot.topics, topic];
+    const next = {
+      ...snapshot,
+      topics: nextTopics,
+      includedTopicCount: nextTopics.length,
+      index: {
+        ...snapshot.index,
+        includedPointerLineCount: nextTopics.filter(
+          (item) => item.indexLine !== undefined,
+        ).length,
+      },
+    };
+    next.index.truncated =
+      next.index.includedPointerLineCount < next.index.pointerLineCount;
+    next.truncated =
+      next.includedTopicCount < next.topicCount || next.index.truncated;
+    if (
+      Buffer.byteLength(renderSnapshot(next), "utf8") >
+      EXISTING_MEMORY_SNAPSHOT_BYTE_CAP
+    ) {
+      break;
+    }
+    snapshot.topics = next.topics;
+    snapshot.includedTopicCount = next.includedTopicCount;
+    snapshot.index.includedPointerLineCount = next.index.includedPointerLineCount;
+    snapshot.index.truncated = next.index.truncated;
+    snapshot.truncated = next.truncated;
+  }
+
+  snapshot.index.truncated =
+    snapshot.index.includedPointerLineCount < snapshot.index.pointerLineCount;
+  snapshot.truncated =
+    snapshot.includedTopicCount < snapshot.topicCount || snapshot.index.truncated;
+  const rendered = renderSnapshot(snapshot);
+  if (
+    Buffer.byteLength(rendered, "utf8") <= EXISTING_MEMORY_SNAPSHOT_BYTE_CAP
+  ) {
+    return rendered;
+  }
+
+  return emptyExistingMemorySnapshot(index, topics.length);
 }
 
 function liveWorkerPrompt(request: MemoryWorkerRequest): string {
+  const candidateText = batchText(request);
   return `You are the memory-substrate pi.dev background worker.
 
 Decide whether the candidate batch contains durable memory per SPEC section 3.
@@ -946,7 +1105,7 @@ Memory root: ${request.memoryRoot}
 Dry run: ${request.dryRun ? "yes" : "no"}
 
 Existing memory snapshot:
-${existingMemorySnapshot(request.memoryRoot)}
+${existingMemorySnapshot(request.memoryRoot, candidateText)}
 
 Candidate batch:
 ${JSON.stringify(request.items, null, 2)}
