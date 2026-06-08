@@ -31,7 +31,7 @@
   - Verified: focused worker-write test passed: `bun test tests/worker-write.test.ts`; 14 pass.
   - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 22 pass.
   - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
-  - Verified: current increment passed focused tests and type-check: `bun test tests/live-worker.test.ts tests/config-and-injection.test.ts` and `bunx tsc --noEmit`.
+  - Verified: current increment focused tests passed: `bun test tests/live-worker.test.ts tests/config-and-injection.test.ts tests/lifecycle-and-worker.test.ts tests/worker-write.test.ts`; exit 0, 48 pass, 256 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 66 pass.
   - Verified: model-default/preflight alignment green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 68 pass, 356 expectations.
 
