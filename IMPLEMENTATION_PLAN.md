@@ -4,7 +4,7 @@
   - Status: implementation is broadly complete and offline-green, but live-integration and remaining conformance gaps still block calling this target done.
   - Completed: resolved the model-default contract conflict in favor of provider-qualified `openai-codex/gpt-5.3-codex-spark`. Live probes on 2026-06-08 showed bare/Anthropic `claude-haiku-4-5` fails third-party usage auth, while Spark succeeds; specs/docs/default constant/tests now align.
   - Completed: live worker performs local `pi --list-models` preflight and fails before the worker prompt for bare, ambiguous, or absent `PI_MEMORY_MODEL` values.
-  - Open: add authenticated reachability preflight for the selected default and `PI_MEMORY_MODEL`, failing closed with retained queue and clear audit/status before relying on child `pi` auth/provider failure.
+  - Completed: live worker now performs an authenticated no-tools reachability preflight for the selected default or `PI_MEMORY_MODEL` after registry validation and before sending candidate batch content; failures fail closed with retained queue and clear audit/status.
   - Open: add the opt-in live pi.dev integration harness required by specs/07: disposable memory root, real extension load, durable/chatter/disabled smoke cases, model/mode assertions, validator-clean output, and explicit no-out-of-root-write checks; keep it out of the default `bun test` green gate.
   - Completed: applicator now fits hooks to rendered `MEMORY.md` pointer lines and refuses prefix-only overflow before mutation or dry-run output.
   - Open: strengthen dedupe fallback beyond exact-match detection; current applicator matches exact frontmatter `name` or exact description, not SPEC §3.4 keyword/near-duplicate search.
@@ -35,6 +35,8 @@
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 66 pass.
   - Verified: model-default/preflight alignment green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 68 pass, 356 expectations.
   - Verified: pointer-line cap fix passed `bun test tests/worker-write.test.ts` and the green gate `bunx tsc --noEmit && bun test`; 70 pass.
+  - Verified: authenticated reachability preflight focused tests passed: `bun test tests/live-worker.test.ts tests/lifecycle-and-worker.test.ts`; exit 0, 19 pass, 143 expectations.
+  - Verified: authenticated reachability preflight green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 72 pass, 388 expectations.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

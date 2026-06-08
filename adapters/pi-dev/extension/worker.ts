@@ -136,6 +136,8 @@ const INDEX_POINTER_LINE_CAP = 150;
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
+const LIVE_WORKER_REACHABILITY_PROMPT =
+  "Memory worker model reachability check. Reply exactly: OK";
 const VALIDATOR_PATH = fileURLToPath(
   new URL("../../../reference/validator.ts", import.meta.url),
 );
@@ -760,6 +762,44 @@ async function preflightLiveWorkerModel(
   return undefined;
 }
 
+function liveWorkerProcessArgs(model: string, prompt: string): string[] {
+  return [
+    "--print",
+    "--no-extensions",
+    "--no-context-files",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-session",
+    "--no-tools",
+    "--model",
+    model,
+    prompt,
+  ];
+}
+
+async function preflightLiveWorkerReachability(
+  command: string,
+  model: string,
+  execProcess: LivePiProcessExecutor,
+  options: LivePiProcessOptions,
+): Promise<MemoryWorkerResult | undefined> {
+  const result = await execProcess(
+    command,
+    liveWorkerProcessArgs(model, LIVE_WORKER_REACHABILITY_PROMPT),
+    options,
+  );
+  if (result.code === 0) return undefined;
+  return {
+    exitCode: result.code,
+    stdout: result.stdout,
+    stderr:
+      result.stderr ||
+      `memory worker model reachability preflight failed: ${model}`,
+    changedPaths: [],
+    proposedPaths: [],
+  };
+}
+
 function existingMemorySnapshot(root: string): string {
   let index = "";
   try {
@@ -1085,18 +1125,19 @@ export function createLivePiMemoryWorkerRunner(
       );
       if (preflightFailure) return preflightFailure;
 
-      const args = [
-        "--print",
-        "--no-extensions",
-        "--no-context-files",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-session",
-        "--no-tools",
-        "--model",
+      const reachabilityFailure = await preflightLiveWorkerReachability(
+        command,
         request.model,
-        liveWorkerPrompt(request),
-      ];
+        execProcess,
+        {
+          cwd: request.memoryRoot,
+          env,
+          timeoutMs,
+        },
+      );
+      if (reachabilityFailure) return reachabilityFailure;
+
+      const args = liveWorkerProcessArgs(request.model, liveWorkerPrompt(request));
 
       const processResult = await execProcess(command, args, {
         cwd: request.memoryRoot,

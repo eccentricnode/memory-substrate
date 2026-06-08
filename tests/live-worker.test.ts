@@ -113,6 +113,9 @@ function recordingProcess(
     if (args[0] === "--list-models") {
       return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
     }
+    if (args.some((arg) => arg.includes("reachability check"))) {
+      return { code: 0, stdout: "OK", stderr: "", killed: false };
+    }
     return { code: 0, stdout, stderr: "", killed: false };
   };
   return Object.assign(process, { calls });
@@ -144,9 +147,15 @@ describe("live pi memory worker runner", () => {
     const result = await worker.run(request(root));
 
     expect(result.exitCode).toBe(0);
-    expect(process.calls).toHaveLength(2);
+    expect(process.calls).toHaveLength(3);
     expect(process.calls[0]?.args).toEqual(["--list-models"]);
-    const call = process.calls[1];
+    const reachabilityCall = process.calls[1];
+    expect(reachabilityCall?.args).toContain("--print");
+    expect(reachabilityCall?.args).toContain("--no-tools");
+    expect(reachabilityCall?.args).toContain(DEFAULT_WORKER_MODEL);
+    expect(reachabilityCall?.args.join("\n")).toContain("reachability check");
+    expect(reachabilityCall?.args.join("\n")).not.toContain("Candidate batch");
+    const call = process.calls[2];
     expect(call?.command).toBe("pi");
     expect(call?.options.cwd).toBe(root);
     expect(call?.options.env.PI_MEMORY_ENABLED).toBe("0");
@@ -187,7 +196,7 @@ describe("live pi memory worker runner", () => {
     const result = await worker.run(request(root, true));
 
     expect(result.exitCode).toBe(0);
-    expect(process.calls[1]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
+    expect(process.calls[2]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
     expect(result.stdout).toContain("proposed paths:");
     expect(result.stdout).toContain("- MEMORY.md");
     expect(result.stdout).toContain("- project_dry-run-memory-write.md");
@@ -244,7 +253,7 @@ describe("live pi memory worker runner", () => {
     expect(topicFiles(root)).toEqual([]);
   });
 
-  test("nonzero live process result is surfaced without applying writes", async () => {
+  test("unreachable authenticated model fails before the worker prompt", async () => {
     const root = memoryRoot();
     const calls: Array<{
       command: string;
@@ -256,13 +265,47 @@ describe("live pi memory worker runner", () => {
       if (args[0] === "--list-models") {
         return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
       }
-      return { code: 7, stdout: "", stderr: "model unavailable", killed: false };
+      return {
+        code: 7,
+        stdout: "",
+        stderr: "third-party usage disabled",
+        killed: false,
+      };
     };
     const worker = createLivePiMemoryWorkerRunner({ process });
 
     const result = await worker.run(request(root));
 
     expect(calls).toHaveLength(2);
+    expect(result.exitCode).toBe(7);
+    expect(result.stderr).toContain("third-party usage disabled");
+    expect(calls[1]?.args.join("\n")).toContain("reachability check");
+    expect(calls[1]?.args.join("\n")).not.toContain("Candidate batch");
+    expect(topicFiles(root)).toEqual([]);
+  });
+
+  test("nonzero live worker prompt result is surfaced without applying writes", async () => {
+    const root = memoryRoot();
+    const calls: Array<{
+      command: string;
+      args: string[];
+      options: LivePiProcessOptions;
+    }> = [];
+    const process: LivePiProcessExecutor = async (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[0] === "--list-models") {
+        return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
+      }
+      if (args.some((arg) => arg.includes("reachability check"))) {
+        return { code: 0, stdout: "OK", stderr: "", killed: false };
+      }
+      return { code: 7, stdout: "", stderr: "model unavailable", killed: false };
+    };
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(calls).toHaveLength(3);
     expect(result.exitCode).toBe(7);
     expect(result.stderr).toContain("model unavailable");
     expect(topicFiles(root)).toEqual([]);

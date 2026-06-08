@@ -5,12 +5,18 @@ import { join } from "node:path";
 import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore, type MemoryScheduler } from "../adapters/pi-dev/extension/core.ts";
 import type {
+  LivePiProcessExecutor,
+  LivePiProcessOptions,
   MemoryWorkerRequest,
   MemoryWorkerResult,
   MemoryWorkerRunner,
 } from "../adapters/pi-dev/extension/worker.ts";
+import { createLivePiMemoryWorkerRunner } from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
+const MODEL_REGISTRY = `provider      model                       context  max-out  thinking  images
+openai-codex  gpt-5.3-codex-spark         128K     128K     yes       no
+`;
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -467,5 +473,58 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(core.pendingBatchItems).toBe(1);
     expect(runRecord?.status).toBe("failed");
     expect(runRecord?.error).toBe("model unavailable");
+  });
+
+  test("unreachable live model preflight fails closed and retains queued batch", async () => {
+    const state = recordingState();
+    const calls: Array<{
+      command: string;
+      args: string[];
+      options: LivePiProcessOptions;
+    }> = [];
+    const process: LivePiProcessExecutor = async (command, args, options) => {
+      calls.push({ command, args, options });
+      if (args[0] === "--list-models") {
+        return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
+      }
+      return {
+        code: 7,
+        stdout: "",
+        stderr: "third-party usage disabled",
+        killed: false,
+      };
+    };
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: memoryRoot() },
+      state,
+      worker: createLivePiMemoryWorkerRunner({ process }),
+    });
+
+    await core.handleAgentEnd({
+      messages: ["The durable decision is to retain batches on auth failures."],
+    });
+    const result = await core.flush();
+
+    const runRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as
+      | {
+          status?: string;
+          error?: string;
+          outputTail?: string;
+        }
+      | undefined;
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("third-party usage disabled");
+    expect(result.processedItems).toBe(0);
+    expect(result.remainingItems).toBe(1);
+    expect(core.pendingBatchItems).toBe(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.args.join("\n")).toContain("reachability check");
+    expect(calls[1]?.args.join("\n")).not.toContain("Candidate batch");
+    expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.error).toBe("third-party usage disabled");
+    expect(runRecord?.outputTail).toContain("third-party usage disabled");
   });
 });
