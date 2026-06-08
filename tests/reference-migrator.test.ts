@@ -122,6 +122,64 @@ This imported identity file did not have memory frontmatter.
     expect(reportText).toContain("frontmatter-inferred");
   });
 
+  test("re-points intra-memory links when cross-linked topics are renamed", () => {
+    const sourceRoot = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    // Both topics are renamed (frontmatter name differs from filename stem) AND
+    // they cross-link each other by old filename — the real-PAI shape that
+    // breaks validation without a body-link rewrite pass.
+    writeFileSync(
+      join(sourceRoot, "project_alpha.md"),
+      `---
+name: alpha-renamed
+description: Alpha cross-links beta by its old filename
+metadata:
+  type: project
+---
+
+Alpha depends on [Beta](project_beta.md#section) and an [external](https://example.com).
+`,
+    );
+    writeFileSync(
+      join(sourceRoot, "project_beta.md"),
+      `---
+name: beta-renamed
+description: Beta cross-links alpha by its old filename
+metadata:
+  type: project
+---
+
+Beta builds on [Alpha](project_alpha.md).
+`,
+    );
+    writeFileSync(
+      join(sourceRoot, "MEMORY.md"),
+      `# Memory Index
+
+## Projects
+- [Alpha](project_alpha.md) — Alpha cross-links beta by its old filename
+- [Beta](project_beta.md) — Beta cross-links alpha by its old filename
+`,
+    );
+
+    const report = migratePaiMemoryDirectory(sourceRoot, outputDir);
+    const outputMemoryRoot = join(outputDir, "memory");
+
+    // The proposal must be validator-clean despite the renames.
+    expect(validateMemoryDirectory(outputMemoryRoot).counts.error).toBe(0);
+    expect(
+      report.findings.filter((finding) => finding.kind === "output-validation-finding"),
+    ).toEqual([]);
+    expect(report.findings.some((finding) => finding.kind === "body-link-rewritten")).toBe(true);
+
+    const alpha = readFileSync(join(outputMemoryRoot, "project_alpha-renamed.md"), "utf8");
+    // Renamed target re-pointed, fragment preserved, external link untouched.
+    expect(alpha).toContain("[Beta](project_beta-renamed.md#section)");
+    expect(alpha).toContain("[external](https://example.com)");
+    const beta = readFileSync(join(outputMemoryRoot, "project_beta-renamed.md"), "utf8");
+    expect(beta).toContain("[Alpha](project_alpha-renamed.md)");
+  });
+
   test("migrates imported markdown without a source index while reporting the incomplete source", () => {
     const sourceRoot = tempDir();
     const outputDir = join(tempDir(), "proposal");

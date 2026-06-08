@@ -13,7 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   validateMemoryDirectory,
   type Finding as ValidatorFinding,
@@ -31,6 +31,7 @@ export type MigrationFindingKind =
   | "output-validation-finding"
   | "frontmatter-normalized"
   | "frontmatter-inferred"
+  | "body-link-rewritten"
   | "invalid-type"
   | "duplicate-topic-name"
   | "index-non-pointer-line"
@@ -104,6 +105,51 @@ function isInsideRoot(root: string, target: string): boolean {
 
 function toPortablePath(path: string): string {
   return path.split(sep).join("/");
+}
+
+function isExternalLink(target: string): boolean {
+  return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(target);
+}
+
+// Topic files are renamed during migration (type prefix + slugified frontmatter
+// name). Intra-memory markdown links in topic bodies still point at the old
+// filenames, so re-point any link whose target was renamed. Without this the
+// proposed memory root fails validation (SPEC.md §7 / specs/10) with broken-link
+// errors and the CLI exits nonzero on real PAI memory that cross-links topics.
+function rewriteBodyLinks(
+  sourceRoot: string,
+  topic: MigratedTopic,
+  renameBySourceRel: Map<string, string>,
+  findings: MigrationFinding[],
+): void {
+  const sourceDir = dirname(topic.sourceRelativePath);
+  let rewrites = 0;
+  const rewritten = topic.body.replace(
+    /(!?\[[^\]\n]*\]\()([^)\s]+)((?:\s+"[^"]*")?\))/g,
+    (whole: string, pre: string, target: string, post: string) => {
+      if (isExternalLink(target)) return whole;
+      const hashIndex = target.indexOf("#");
+      const pathOnly = hashIndex === -1 ? target : target.slice(0, hashIndex);
+      const fragment = hashIndex === -1 ? "" : target.slice(hashIndex);
+      if (pathOnly.trim() === "" || isAbsolute(pathOnly)) return whole;
+      const targetRel = toPortablePath(
+        relative(sourceRoot, resolve(sourceRoot, sourceDir, pathOnly)),
+      );
+      const renamed = renameBySourceRel.get(targetRel);
+      if (!renamed || renamed === targetRel) return whole;
+      rewrites += 1;
+      return `${pre}${renamed}${fragment}${post}`;
+    },
+  );
+  if (rewrites > 0) {
+    topic.body = rewritten;
+    findings.push({
+      kind: "body-link-rewritten",
+      file: topic.sourceRelativePath,
+      severity: "info",
+      message: `re-pointed ${rewrites} intra-memory link${rewrites === 1 ? "" : "s"} to renamed topic files`,
+    });
+  }
 }
 
 function slugify(value: string, fallback: string): string {
@@ -540,6 +586,12 @@ export function migratePaiMemoryDirectory(
   const migratedBySourcePath = new Map(
     topics.map((topic) => [topic.sourceRelativePath, topic]),
   );
+  const renameBySourceRel = new Map(
+    topics.map((topic) => [topic.sourceRelativePath, topic.outputRelativePath]),
+  );
+  for (const topic of topics) {
+    rewriteBodyLinks(sourceRoot, topic, renameBySourceRel, findings);
+  }
   findings.push(...collectIndexFindings(sourceRoot, sourceIndex, migratedBySourcePath));
 
   const writtenFiles: string[] = [];
