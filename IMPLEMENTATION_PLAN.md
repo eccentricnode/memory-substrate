@@ -94,16 +94,19 @@
 
 - P2 — Later extension capabilities.
   - Status: compactor and migrator completed.
-  - Open: formalize the PAI-shaped migrator input schema; current migrator behavior is conservative and reviewable but the input contract is not specified.
   - Open: decide whether pi.dev should expose optional compaction/refresh command wiring around `reference/compactor.ts`; this is optional under SPEC §6.2 and should not block forced-write conformance.
   - Completed: `reference/compactor.ts` adds a CLI/API that reads the memory root, emits proposed `MEMORY.md` plus `COMPACTION_REPORT.md` to an output directory outside the root, and does not mutate durable memory.
   - Verified: compactor covered by `tests/reference-compactor.test.ts`.
   - Completed: `reference/migrator.ts` adds a CLI/API that converts historical PAI-shaped memory directories into a reviewable `memory/` proposal plus `MIGRATION_REPORT.md` without mutating the source.
   - Completed: migrator normalizes flat `type:` frontmatter into `metadata.type`, infers frontmatter for imported markdown files, rebuilds a validator-clean `MEMORY.md`, records ambiguous/non-pointer/broken/duplicate source index lines in the report, and validates the proposed memory root with `reference/validator.ts`.
+  - Completed: `specs/10-pai-migrator-input-schema.md` formalizes the accepted PAI source shapes.
+  - Completed: migrator reports now record the input contract and accepted source shape.
+  - Completed: regression coverage includes migration when the source `MEMORY.md` is missing.
   - Verified: focused migrator tests passed: `bun test tests/reference-migrator.test.ts`; exit 0, 2 tests, 25 expectations.
+  - Verified: focused migrator tests passed: `bun test tests/reference-migrator.test.ts`; exit 0, 3 pass, 35 expectations.
   - Verified: migrator processed the historical PAI memory root from `STRATEGY.md` in a temporary proposal; exit 0, 93/93 topic files migrated, proposed index 103 lines, no output-validation failure.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 46 tests, 212 expectations across 8 files.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 88 pass, 7 skip, 467 expectations across 95 tests.
   - Completed: audit schema coverage added for queue/worker records, bounded output tails, validator result fields, and absence of audit bookkeeping from injected prompt text.
   - Verified: focused lifecycle/worker tests passed: `bun test tests/lifecycle-and-worker.test.ts`; exit 0, 10 pass, 69 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 61 pass, 315 expectations across 8 files.
-  - Current finding: specs define `reference/migrator.ts` but do not formally define the PAI-shaped input schema; the implementation therefore uses conservative inference and makes every inferred/ambiguous conversion reviewable in `MIGRATION_REPORT.md`.

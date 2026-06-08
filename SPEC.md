@@ -49,7 +49,11 @@ metadata:
 ---
 ```
 
-- `name` MUST match the filename stem (e.g., `feedback_foo.md` → `name: feedback-foo` or `name: foo` — slug discipline is per-adapter; recommendation is filename-stem-after-type-prefix).
+- `name` MUST be the topic slug. For filenames with no adapter-declared structural prefix,
+  `name` MUST match the filename stem. For filenames using the recommended `<type>_<slug>.md`
+  convention, `name` MUST match the stem after the `<type>_` prefix (e.g.,
+  `feedback_foo.md` -> `name: foo`). Why: links and dedupe need a stable cross-adapter
+  slug, while filenames may carry adapter routing or category hints.
 - `description` MUST be a single line, ≤200 characters, no markdown.
 - `metadata.type` MUST be one of the four category values. Adapters MAY warn on unrecognized types; they MUST NOT silently coerce.
 
@@ -62,7 +66,10 @@ metadata:
 ### 2.4 Filename convention
 
 - Topic filenames SHOULD follow `<type>_<slug>.md` (e.g., `feedback_codex-ralph-loop-default-fresh.md`).
-- The `<type>_` prefix is informational. The source-of-truth type is `metadata.type` in frontmatter, not the filename.
+- When a filename uses `<type>_<slug>.md`, the `<slug>` portion MUST match frontmatter
+  `name`; the `<type>_` prefix is not part of `name`.
+- The `<type>_` prefix is a filename convention, not the schema source of truth. The
+  source-of-truth type is `metadata.type` in frontmatter, not the filename.
 - Filenames MUST be unique within their containing directory.
 
 ### 2.5 Index format (`MEMORY.md`)
@@ -137,9 +144,23 @@ Adapters MUST ship a prompt-text block (≤80 lines) that encodes §3.1–§3.4 
 
 ### 4.1 Bootstrap
 
-At session start, the host MUST load `MEMORY.md` into the agent's context.
+The host MUST provide bootstrap access to `MEMORY.md` index entries before the agent relies
+on durable memory. The default delivery is to load `MEMORY.md` into the agent's context at
+session start.
 
-- If the host has a per-session context cap that's smaller than the index, the host MUST load the first N lines where N is the cap. Adapters SHOULD warn if any content past the cap is silently dropped.
+- If the host has a per-session context cap that's smaller than the index, the host MUST
+  either load the first N lines where N is the cap or document an adapter-specific bounded
+  selection strategy. Adapters SHOULD warn if any content past the cap is silently dropped.
+- If a host cannot safely or usefully preload the full index, an adapter MAY satisfy
+  bootstrap with bounded, visible, relevant index-snippet injection at the earliest
+  host-supported turn boundary. The adapter binding MUST document the trigger, caps,
+  attribution, and empty-match behavior. Why: some hosts expose reliable turn-start
+  injection rather than a full session-start context surface; the contract is that memory is
+  available through a bounded, inspectable index surface, not that every adapter dumps the
+  full index unconditionally.
+- This bootstrap rule is subordinate to ignore and disabled modes: ignore mode suppresses
+  use, citation, and writes (§4.4), while disabled mode skips bootstrap and all memory I/O
+  entirely (§4.5).
 - The bootstrap content is informational; the agent decides what's relevant.
 
 ### 4.2 On-demand reads
@@ -217,7 +238,7 @@ A compaction run SHOULD:
 Every adapter MUST provide:
 
 1. **Path resolution** — answer: where is `<memory_root>` for this host?
-2. **Bootstrap wiring** — load `MEMORY.md` into the session's starting context.
+2. **Bootstrap wiring** — provide `MEMORY.md` index bootstrap context per §4.1.
 3. **Write protocol delivery** — inject §3.5 prompt-bakeable form into the host's system-prompt surface (system prompt, CLAUDE.md, AGENTS.md, skill, etc.).
 4. **Ignore signal** — honor §4.4 when active.
 5. **Disabled signal** — honor §4.5 when active.
@@ -237,7 +258,7 @@ Adapters MAY provide:
 An adapter is v0.1-conformant if it answers YES to all of:
 
 - [ ] Resolves `<memory_root>` deterministically given host config
-- [ ] Loads `MEMORY.md` at session start (up to host's cap)
+- [ ] Provides `MEMORY.md` index bootstrap context per §4.1
 - [ ] Injects the write protocol prompt block into the host's system-prompt surface
 - [ ] Honors ignore mode (no writes, no citations)
 - [ ] Honors disabled mode (no bootstrap, no I/O)

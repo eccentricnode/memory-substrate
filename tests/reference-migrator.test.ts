@@ -77,6 +77,7 @@ This imported identity file did not have memory frontmatter.
     expect(readFileSync(join(sourceRoot, "MEMORY.md"), "utf8")).toBe(originalIndex);
     expect(existsSync(join(sourceRoot, "MIGRATION_REPORT.md"))).toBe(false);
     expect(report.outputMemoryRoot).toBe(join(outputDir, "memory"));
+    expect(report.inputContract).toBe("specs/10-pai-migrator-input-schema.md");
     expect(report.migratedTopicFileCount).toBe(3);
     expect(report.findings.some((finding) => finding.kind === "frontmatter-normalized")).toBe(true);
     expect(report.findings.some((finding) => finding.kind === "frontmatter-inferred")).toBe(true);
@@ -115,8 +116,45 @@ This imported identity file did not have memory frontmatter.
 
     const reportText = readFileSync(join(outputDir, "MIGRATION_REPORT.md"), "utf8");
     expect(reportText).toContain("## Why this matters");
+    expect(reportText).toContain("## Input Contract");
+    expect(reportText).toContain("historical flat `type:` frontmatter");
     expect(reportText).toContain("The source directory is left untouched");
     expect(reportText).toContain("frontmatter-inferred");
+  });
+
+  test("migrates imported markdown without a source index while reporting the incomplete source", () => {
+    const sourceRoot = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    writeFileSync(
+      join(sourceRoot, "PROJECTS.md"),
+      `# Projects
+
+The imported projects file carries useful context but no memory frontmatter.
+`,
+    );
+
+    const report = migratePaiMemoryDirectory(sourceRoot, outputDir);
+
+    expect(report.sourceIndexLineCount).toBe(0);
+    expect(report.migratedTopicFileCount).toBe(1);
+    expect(
+      report.findings.some(
+        (finding) =>
+          finding.kind === "source-validation-finding" &&
+          finding.file === "MEMORY.md" &&
+          finding.message === "index file missing",
+      ),
+    ).toBe(true);
+    expect(report.findings.some((finding) => finding.kind === "frontmatter-inferred")).toBe(true);
+
+    const outputMemoryRoot = join(outputDir, "memory");
+    const inferredTopic = readFileSync(
+      join(outputMemoryRoot, "project_projects.md"),
+      "utf8",
+    );
+    expect(inferredTopic).toContain("name: projects");
+    expect(inferredTopic).toContain("metadata:\n  type: project");
+    expect(validateMemoryDirectory(outputMemoryRoot).counts.error).toBe(0);
   });
 
   test("fails closed when the output directory is inside the PAI root", () => {

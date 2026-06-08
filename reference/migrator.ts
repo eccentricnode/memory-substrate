@@ -24,6 +24,7 @@ type MemoryType = typeof VALID_TYPES[number];
 
 const DESCRIPTION_CAP = 200;
 const HOOK_CAP = 150;
+const INPUT_CONTRACT = "specs/10-pai-migrator-input-schema.md";
 
 export type MigrationFindingKind =
   | "source-validation-finding"
@@ -48,6 +49,7 @@ export interface MigrationFinding {
 }
 
 export interface MigrationReport {
+  inputContract: string;
   sourceRoot: string;
   outputDir: string;
   outputMemoryRoot: string;
@@ -453,6 +455,11 @@ function renderReport(report: MigrationReport): string {
 ## Why this matters
 Migration is a one-way proposal from the historical PAI shape into the memory-substrate contract. The source directory is left untouched, and the generated memory root is validated so a human can review concrete files instead of trusting an in-place rewrite.
 
+## Input Contract
+- Contract: ${report.inputContract}
+- Accepted source topics: nested memory-substrate frontmatter, historical flat \`type:\` frontmatter, or imported markdown with inferred frontmatter.
+- Index handling: source \`MEMORY.md\` is review context; the proposed index is rebuilt from migrated topics so duplicate, broken, long, or non-pointer source lines cannot leak into durable output.
+
 ## Findings
 ${findingLines.join("\n")}
 
@@ -554,6 +561,7 @@ export function migratePaiMemoryDirectory(
 
   const reportPath = join(resolvedOutputDir, "MIGRATION_REPORT.md");
   const report: MigrationReport = {
+    inputContract: INPUT_CONTRACT,
     sourceRoot,
     outputDir: resolvedOutputDir,
     outputMemoryRoot,
