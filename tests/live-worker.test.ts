@@ -133,7 +133,9 @@ describe("live pi memory worker runner", () => {
             body:
               "keep live memory writes root-confined\n\n**Why:** Direct model file tools cannot be mechanically confined by pi today.\n\n**How to apply:** Return drafts and let the extension perform the two-step save.",
             hook: "keep live memory writes root-confined",
+            title: "Live Memory Root Confined",
             name: "live-memory-root-confined",
+            relativePath: "project_live-memory-root-confined.md",
           },
         ],
       }),
@@ -187,6 +189,10 @@ describe("live pi memory worker runner", () => {
             description: "dry-run memory write",
             body:
               "dry-run memory write\n\n**Why:** Operators need a no-mutation check.\n\n**How to apply:** Inspect proposed paths before enabling live writes.",
+            hook: "dry-run memory write",
+            title: "Dry Run Memory Write",
+            name: "dry-run-memory-write",
+            relativePath: "project_dry-run-memory-write.md",
           },
         ],
       }),
@@ -251,6 +257,57 @@ describe("live pi memory worker runner", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("JSON");
     expect(topicFiles(root)).toEqual([]);
+  });
+
+  test("live upsert drafts must carry the full structured contract", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(
+      JSON.stringify({
+        drafts: [
+          {
+            type: "project",
+            description: "missing structured fields",
+            body:
+              "missing structured fields\n\n**Why:** This should fail before writing.\n\n**How to apply:** Reject the malformed draft.",
+          },
+        ],
+      }),
+    );
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("missing required upsert fields");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
+  test("live project drafts must carry why and how body sections", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(
+      JSON.stringify({
+        drafts: [
+          {
+            type: "project",
+            description: "bad body shape",
+            body: "bad body shape without rationale",
+            hook: "bad body shape",
+            title: "Bad Body Shape",
+            name: "bad-body-shape",
+            relativePath: "project_bad-body-shape.md",
+          },
+        ],
+      }),
+    );
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("must include **Why:** and **How to apply:**");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
   });
 
   test("unreachable authenticated model fails before the worker prompt", async () => {

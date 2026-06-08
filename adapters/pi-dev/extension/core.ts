@@ -84,6 +84,8 @@ export interface WorkerAuditRecord {
   model: string;
   dryRun: boolean;
   status: WorkerRunStatus;
+  failureClass?: "refused" | "failed" | "validation-failed";
+  retainedQueueCount: number;
   exitCode?: number;
   changedPaths: string[];
   proposedPaths: string[];
@@ -518,6 +520,8 @@ export class MemoryExtensionCore {
         model: this.config.model,
         dryRun: this.config.dryRun,
         status: "refused",
+        failureClass: "refused",
+        retainedQueueCount: this.queue.length,
         changedPaths: [],
         proposedPaths: [],
         error,
@@ -542,7 +546,15 @@ export class MemoryExtensionCore {
 
     try {
       const result = await this.worker.run(request);
-      this.recordWorkerResult(batchId, reason, items, result);
+      this.recordWorkerResult(
+        batchId,
+        reason,
+        items,
+        result,
+        result.exitCode === 0
+          ? Math.max(0, this.queue.length - items.length)
+          : this.queue.length,
+      );
       if (result.exitCode === 0) {
         return { status: "completed", itemCount: items.length };
       }
@@ -561,6 +573,8 @@ export class MemoryExtensionCore {
         model: this.config.model,
         dryRun: this.config.dryRun,
         status: "failed",
+        failureClass: "failed",
+        retainedQueueCount: this.queue.length,
         changedPaths: [],
         proposedPaths: [],
         error: message,
@@ -575,10 +589,14 @@ export class MemoryExtensionCore {
     reason: string,
     items: MemoryBatchItem[],
     result: MemoryWorkerResult,
+    retainedQueueCount: number,
   ): void {
     const validatorTail = result.validator
       ? outputTail(result.validator.stdout, result.validator.stderr)
       : undefined;
+    const failedValidation =
+      result.exitCode !== 0 && result.validator !== undefined && result.validator.exitCode !== 0;
+    const failedRun = result.exitCode !== 0;
     this.recordWorkerAudit({
       batchId,
       reason,
@@ -586,7 +604,13 @@ export class MemoryExtensionCore {
       items: this.auditItems(items),
       model: this.config.model,
       dryRun: this.config.dryRun,
-      status: result.exitCode === 0 ? "completed" : "failed",
+      status: failedRun ? "failed" : "completed",
+      failureClass: failedRun
+        ? failedValidation
+          ? "validation-failed"
+          : "failed"
+        : undefined,
+      retainedQueueCount,
       exitCode: result.exitCode,
       changedPaths: result.changedPaths ?? [],
       proposedPaths: result.proposedPaths ?? [],

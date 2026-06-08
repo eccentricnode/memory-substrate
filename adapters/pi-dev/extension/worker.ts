@@ -382,6 +382,12 @@ function descriptionKeywords(value: string): Set<string> {
   return keywords;
 }
 
+function hasMarkdown(value: string): boolean {
+  return /(`[^`]+`|\*\*?[^*]+\*\*?|__[^_]+__|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|^#{1,6}\s|<[^>\n]+>)/m.test(
+    value,
+  );
+}
+
 function keywordMatchScore(
   draftKeywords: Set<string>,
   existingKeywords: Set<string>,
@@ -506,6 +512,9 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   }
   const description = oneLine(draft.description ?? "", DESCRIPTION_CAP);
   if (!description) throw new Error("memory description is required");
+  if (hasMarkdown(description)) {
+    throw new Error("memory description must not contain markdown formatting");
+  }
   if (!draft.body) throw new Error("memory body is required");
   const name = slugify(draft.name ?? description);
   const type = draft.type as MemoryType;
@@ -526,6 +535,22 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
     title: draft.title ?? titleize(name),
     relativePath,
   };
+}
+
+function assertBodyMatchesDraftContract(draft: RequiredUpsertMemoryDraft): void {
+  if (draft.type !== "feedback" && draft.type !== "project") return;
+  const body = draft.body.trim();
+  const firstLine = body.split(/\r?\n/).find((line) => line.trim() !== "");
+  if (!firstLine || firstLine.trim().startsWith("**")) {
+    throw new Error(
+      `${draft.type} memory body must state the durable fact before rationale`,
+    );
+  }
+  if (!/\*\*Why:\*\*/.test(body) || !/\*\*How to apply:\*\*/.test(body)) {
+    throw new Error(
+      `${draft.type} memory body must include **Why:** and **How to apply:** sections`,
+    );
+  }
 }
 
 function renderTopic(draft: RequiredUpsertMemoryDraft): string {
@@ -994,36 +1019,43 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
     const type = asString(record.type);
     const description = asString(record.description);
     const body = asString(record.body);
+    const hook = asString(record.hook);
+    const title = asString(record.title);
+    const name = asString(record.name);
+    const relativePath = asString(record.relativePath);
     if (action !== undefined && action !== "upsert" && action !== "delete") {
       throw new Error(`live worker draft ${index} has invalid action`);
     }
     if (action === "delete") {
-      const relativePath = asString(record.relativePath);
       if (!relativePath) {
         throw new Error(`live worker draft ${index} missing delete relativePath`);
+      }
+      if (!description) {
+        throw new Error(`live worker draft ${index} missing delete description`);
       }
       return {
         action,
         description,
-        body,
         relativePath,
       };
     }
     if (!VALID_TYPES.has(type as MemoryType)) {
       throw new Error(`live worker draft ${index} has invalid type`);
     }
-    if (!description || !body) {
-      throw new Error(`live worker draft ${index} missing description or body`);
+    if (!description || !body || !hook || !title || !name || !relativePath) {
+      throw new Error(
+        `live worker draft ${index} missing required upsert fields`,
+      );
     }
     return {
       action: action ?? "upsert",
       type: type as MemoryType,
       description,
       body,
-      hook: asString(record.hook),
-      title: asString(record.title),
-      name: asString(record.name),
-      relativePath: asString(record.relativePath),
+      hook,
+      title,
+      name,
+      relativePath,
     };
   });
 }
@@ -1119,6 +1151,7 @@ export async function applyMemoryWriteDrafts(
       : preferredPath;
     proposedPaths.add(topicPath);
     proposedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
+    assertBodyMatchesDraftContract(fittedDraft);
     return { action: "upsert", draft: fittedDraft, topicPath, topicRelativePath };
   });
 

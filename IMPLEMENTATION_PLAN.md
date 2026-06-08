@@ -9,7 +9,11 @@
   - Completed: applicator now fits hooks to rendered `MEMORY.md` pointer lines and refuses prefix-only overflow before mutation or dry-run output.
   - Completed: strengthened dedupe fallback beyond exact-match detection; the applicator now performs conservative keyword-overlap matching and preserves existing topic filename/name/type identity when updating a matched memory.
   - Completed: enabled mode now treats a missing, directory, or symlinked `MEMORY.md` as unavailable; the applicator refuses implicit index creation in live and dry-run planning; specs document why.
-  - Open: implement and test the now-authored worker output and retained-failure contracts in `specs/08-worker-draft-contract.md` and `specs/09-worker-failure-retention.md`.
+  - Completed: live worker JSON upserts now require full structured fields: `name`, `title`, `hook`, and `relativePath`.
+  - Completed: delete drafts now require a reason/description, and descriptions containing markdown are refused before mutation.
+  - Completed: project/feedback bodies must include fact-first content plus `**Why:**` and `**How to apply:**` sections.
+  - Completed: worker audit records include `failureClass` and `retainedQueueCount`, including `validation-failed` cases.
+  - Completed: retry after worker recovery processes retained candidates once in order.
   - Completed: live worker runner uses an env-capable launcher and runs child `pi` with `PI_MEMORY_ENABLED=0` plus isolation flags.
   - Completed: root-confined applicator remains the write authority and enforces two-step saves: topic file plus `MEMORY.md` pointer.
   - Completed: worker-supplied `relativePath` basenames are refused unless they match the normalized draft type/name filename convention, with regression coverage.
@@ -39,6 +43,9 @@
   - Verified: authenticated reachability preflight green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 72 pass, 388 expectations.
   - Verified: dedupe fallback increment passed focused `bun test tests/worker-write.test.ts`; 20 pass, 106 expectations; green gate `bunx tsc --noEmit && bun test`; 73 pass, 395 expectations.
   - Verified: focused `bun test tests/config-and-injection.test.ts tests/worker-write.test.ts` passed with 39 pass; green gate `bunx tsc --noEmit && bun test` passed with 80 pass.
+  - Verified: worker draft/audit contracts focused tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/live-worker.test.ts tests/validate-command.test.ts`; 59 pass, 336 expectations.
+  - Verified: local typecheck passed: `bunx tsc --noEmit`.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 87 pass, 457 expectations.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

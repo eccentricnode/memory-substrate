@@ -361,6 +361,8 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
           model?: string;
           dryRun?: boolean;
           status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
           exitCode?: number;
           changedPaths?: string[];
           proposedPaths?: string[];
@@ -385,6 +387,7 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
       model: DEFAULT_WORKER_MODEL,
       dryRun: true,
       status: "completed",
+      retainedQueueCount: 0,
       exitCode: 0,
       changedPaths: [join(root, "audit_contract.md")],
       proposedPaths: [join(root, "MEMORY.md"), join(root, "audit_contract.md")],
@@ -438,12 +441,21 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
 
     const runRecord = state.entries.find(
       (entry) => entry.type === "memory-substrate-worker-run",
-    )?.data as { status?: string; error?: string } | undefined;
+    )?.data as
+      | {
+          status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
+          error?: string;
+        }
+      | undefined;
     expect(result.status).toBe("refused");
     expect(result.processedItems).toBe(0);
     expect(result.remainingItems).toBe(1);
     expect(core.pendingBatchItems).toBe(1);
     expect(runRecord?.status).toBe("refused");
+    expect(runRecord?.failureClass).toBe("refused");
+    expect(runRecord?.retainedQueueCount).toBe(1);
     expect(runRecord?.error).toContain("PI_MEMORY_ENABLED=0");
   });
 
@@ -465,14 +477,104 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
 
     const runRecord = state.entries.find(
       (entry) => entry.type === "memory-substrate-worker-run",
-    )?.data as { status?: string; error?: string } | undefined;
+    )?.data as
+      | {
+          status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
+          error?: string;
+        }
+      | undefined;
     expect(result.status).toBe("failed");
     expect(result.error).toBe("model unavailable");
     expect(result.processedItems).toBe(0);
     expect(result.remainingItems).toBe(1);
     expect(core.pendingBatchItems).toBe(1);
     expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.failureClass).toBe("failed");
+    expect(runRecord?.retainedQueueCount).toBe(1);
     expect(runRecord?.error).toBe("model unavailable");
+  });
+
+  test("manual flush after recovery processes retained candidates once in order", async () => {
+    const root = memoryRoot();
+    const requests: MemoryWorkerRequest[] = [];
+    let fail = true;
+    const worker: MemoryWorkerRunner = {
+      supportsEnv: true,
+      async run(request) {
+        requests.push(request);
+        if (fail) return { exitCode: 1, stderr: "temporary model failure" };
+        return { exitCode: 0, stdout: "no memory written" };
+      },
+    };
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_MAX_BATCH_ITEMS: "8" },
+      worker,
+    });
+
+    await core.handleAgentEnd({ messages: ["first retained candidate"] });
+    const failed = await core.flush();
+    await core.handleAgentEnd({ messages: ["second later candidate"] });
+    fail = false;
+    const recovered = await core.flush("manual_recovery", { drain: true });
+
+    expect(failed.status).toBe("failed");
+    expect(recovered.status).toBe("flushed");
+    expect(recovered.processedItems).toBe(2);
+    expect(recovered.remainingItems).toBe(0);
+    expect(core.pendingBatchItems).toBe(0);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.items.map((item) => item.messages?.[0])).toEqual([
+      "first retained candidate",
+    ]);
+    expect(requests[1]?.items.map((item) => item.messages?.[0])).toEqual([
+      "first retained candidate",
+      "second later candidate",
+    ]);
+  });
+
+  test("validator rollback failures are audited with a validation-failed class", async () => {
+    const state = recordingState();
+    const worker = recordingWorker({
+      exitCode: 1,
+      stdout: "rolled back 1 memory change(s) after validator failure",
+      stderr: "validator failed after memory write; rolled back attempted changes",
+      changedPaths: [],
+      proposedPaths: [join(memoryRoot(), "MEMORY.md")],
+      validator: {
+        exitCode: 1,
+        stderr: "validator found errors",
+      },
+    });
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: memoryRoot() },
+      state,
+      worker,
+    });
+
+    await core.handleAgentEnd({ messages: ["The durable decision is validator rollback."] });
+    const result = await core.flush();
+
+    const runRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as
+      | {
+          status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
+          validatorResult?: { exitCode?: number };
+        }
+      | undefined;
+
+    expect(result.status).toBe("failed");
+    expect(result.remainingItems).toBe(1);
+    expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.failureClass).toBe("validation-failed");
+    expect(runRecord?.retainedQueueCount).toBe(1);
+    expect(runRecord?.validatorResult?.exitCode).toBe(1);
   });
 
   test("unreachable live model preflight fails closed and retains queued batch", async () => {
@@ -511,6 +613,8 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     )?.data as
       | {
           status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
           error?: string;
           outputTail?: string;
         }
@@ -524,6 +628,8 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(calls[1]?.args.join("\n")).toContain("reachability check");
     expect(calls[1]?.args.join("\n")).not.toContain("Candidate batch");
     expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.failureClass).toBe("failed");
+    expect(runRecord?.retainedQueueCount).toBe(1);
     expect(runRecord?.error).toBe("third-party usage disabled");
     expect(runRecord?.outputTail).toContain("third-party usage disabled");
   });

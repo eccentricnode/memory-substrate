@@ -499,7 +499,8 @@ Use Bun commands for project automation.
         {
           type: "project",
           description: "would exceed line cap",
-          body: "would exceed line cap",
+          body:
+            "would exceed line cap\n\n**Why:** The adapter must reject over-cap indexes before writing.\n\n**How to apply:** Keep index planning bounded.",
         },
       ],
     });
@@ -521,7 +522,8 @@ Use Bun commands for project automation.
         {
           type: "project",
           description: "would exceed byte cap",
-          body: "would exceed byte cap",
+          body:
+            "would exceed byte cap\n\n**Why:** The adapter must reject over-cap indexes before writing.\n\n**How to apply:** Keep index planning bounded.",
         },
       ],
     });
@@ -602,7 +604,8 @@ Use Bun commands for project automation.
         {
           type: "project",
           description: "invalid after write",
-          body: "invalid after write",
+          body:
+            "invalid after write\n\n**Why:** This test exercises validator rollback after mutation.\n\n**How to apply:** Restore all affected files when validation fails.",
           relativePath: "nested/project_invalid-after-write.md",
         },
       ],
@@ -701,5 +704,71 @@ Existing rule.
       beforeTopic,
     );
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
+  });
+
+  test("unknown draft actions are refused before mutation", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "rename",
+          type: "project",
+          description: "unknown action",
+          body:
+            "unknown action\n\n**Why:** Unknown actions cannot be mapped to a safe applicator operation.\n\n**How to apply:** Refuse the whole batch.",
+        } as never,
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is unknown."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("invalid memory draft action");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("markdown descriptions are refused before mutation", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "**markdown** description",
+          body:
+            "markdown description\n\n**Why:** Frontmatter descriptions are one-line plain text.\n\n**How to apply:** Refuse markdown before writing.",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is markdown."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("description must not contain markdown");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("project and feedback drafts require why and how body sections", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "missing rationale sections",
+          body: "missing rationale sections",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is body shape."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("must include **Why:** and **How to apply:**");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 });
