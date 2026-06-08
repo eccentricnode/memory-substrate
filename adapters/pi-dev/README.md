@@ -17,7 +17,8 @@ The extension:
   it cannot recurse into itself.
 - Applies structured worker drafts itself, confined to the memory root, then runs
   `reference/validator.ts`.
-- Registers `/memory-status`, `/memory-validate`, and `/memory-flush`.
+- Registers `/memory-status`, `/memory-validate`, `/memory-flush`, and
+  `/memory-refresh`.
 
 The worker default model is `openai-codex/gpt-5.3-codex-spark`; set `PI_MEMORY_MODEL`
 to override it with another reachable provider-qualified model. The live worker preflights
@@ -79,4 +80,10 @@ Validate a memory root directly with:
 
 ```bash
 bun reference/validator.ts <memory_root>
+```
+
+Create a reviewable compaction proposal without mutating the memory root:
+
+```bash
+/memory-refresh [proposal_output_dir]
 ```

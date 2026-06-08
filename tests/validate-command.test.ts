@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import memorySubstrateExtension from "../adapters/pi-dev/extension/index.ts";
@@ -272,6 +278,85 @@ describe("pi-dev memory command surface", () => {
     });
   });
 
+  test("memory-refresh command writes a reviewable proposal without mutating memory", () => {
+    const root = memoryRoot();
+    const outputDir = join(tempDir(), "refresh-proposal");
+    const originalIndex =
+      "# Memory\n\n- [Duplicate](project_bun-commands.md) — duplicate pointer\n- [Duplicate Again](project_bun-commands.md) — duplicate pointer\n";
+    writeFileSync(
+      join(root, "project_bun-commands.md"),
+      `---
+name: bun-commands
+description: Use Bun for project automation
+metadata:
+  type: project
+---
+
+Use Bun for project automation.
+`,
+    );
+    writeFileSync(join(root, "MEMORY.md"), originalIndex);
+    process.env.PI_MEMORY_ROOT = root;
+    delete process.env.PI_MEMORY_ENABLED;
+    const { handlers, commands } = fakePi();
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    commands.get("memory-refresh")?.handler(outputDir, ctx);
+
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(originalIndex);
+    expect(existsSync(join(root, "COMPACTION_REPORT.md"))).toBe(false);
+    expect(readFileSync(join(outputDir, "MEMORY.md"), "utf8")).toContain(
+      "- [Bun Commands](project_bun-commands.md) — Use Bun for project automation",
+    );
+    expect(readFileSync(join(outputDir, "COMPACTION_REPORT.md"), "utf8")).toContain(
+      "The proposal is written outside the memory root",
+    );
+
+    const notification = ctx.ui.notifications.at(-1);
+    expect(notification?.level).toBe("warn");
+    expect(notification?.message).toContain("memory refresh proposal created");
+    expect(notification?.message).toContain(outputDir);
+    expect(notification?.message).toContain("durable memory was not modified");
+  });
+
+  test("memory-refresh command reports unavailable, ignored, and disabled modes", () => {
+    delete process.env.PI_MEMORY_ENABLED;
+    process.env.PI_MEMORY_ROOT = "/missing-memory-root";
+    const unavailable = fakePi();
+    const unavailableCtx = fakeContext();
+    unavailable.handlers.get("session_start")?.({}, unavailableCtx);
+    unavailable.commands.get("memory-refresh")?.handler("", unavailableCtx);
+    expect(unavailableCtx.ui.notifications.at(-1)?.message).toContain(
+      "memory refresh unavailable",
+    );
+    expect(unavailableCtx.ui.notifications.at(-1)?.level).toBe("error");
+
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    process.env.PI_MEMORY_IGNORE = "1";
+    const ignored = fakePi();
+    const ignoredCtx = fakeContext();
+    ignored.handlers.get("session_start")?.({}, ignoredCtx);
+    ignored.commands.get("memory-refresh")?.handler("", ignoredCtx);
+    expect(ignoredCtx.ui.notifications.at(-1)).toEqual({
+      message: "memory refresh skipped: ignored",
+      level: "info",
+    });
+
+    process.env.PI_MEMORY_ENABLED = "0";
+    process.env.PI_MEMORY_ROOT = "/missing-memory-root";
+    delete process.env.PI_MEMORY_IGNORE;
+    const disabled = fakePi();
+    const disabledCtx = fakeContext();
+    disabled.handlers.get("session_start")?.({}, disabledCtx);
+    disabled.commands.get("memory-refresh")?.handler("", disabledCtx);
+    expect(disabledCtx.ui.notifications.at(-1)).toEqual({
+      message: "memory refresh skipped: disabled",
+      level: "info",
+    });
+  });
+
   test("disabled extension handlers short-circuit before resolving the memory root", async () => {
     process.env.PI_MEMORY_ENABLED = "0";
     process.env.PI_MEMORY_ROOT = "/missing-memory-root";
@@ -323,6 +408,7 @@ describe("pi-dev memory command surface", () => {
     commands.get("memory-status")?.handler("", ctx);
     await commands.get("memory-flush")?.handler("", ctx);
     await commands.get("memory-validate")?.handler("", ctx);
+    commands.get("memory-refresh")?.handler("", ctx);
 
     expect(startResult).toBeUndefined();
     expect(compactResult).toBeUndefined();
@@ -337,6 +423,7 @@ describe("pi-dev memory command surface", () => {
       { message: "memory: disabled", level: "info" },
       { message: "memory flush skipped: disabled", level: "info" },
       { message: "memory validation skipped: disabled", level: "info" },
+      { message: "memory refresh skipped: disabled", level: "info" },
     ]);
   });
 });

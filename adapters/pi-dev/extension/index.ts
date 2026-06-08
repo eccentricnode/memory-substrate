@@ -1,6 +1,7 @@
 import type {
   FlushMemoryResult,
   MemoryExtensionCore,
+  RefreshMemoryResult,
   SessionBeforeCompactEvent,
   ValidateMemoryResult,
 } from "./core.ts";
@@ -177,6 +178,39 @@ function flushMessage(result: FlushMemoryResult): string {
   return `memory flush complete: processed ${result.processedItems} queued memory candidate(s)${suffix}`;
 }
 
+function refreshLevel(
+  result: RefreshMemoryResult,
+): "info" | "warn" | "error" | "success" {
+  if (result.status === "proposal-created") {
+    return result.findingCount && result.findingCount > 0 ? "warn" : "success";
+  }
+  if (result.status === "disabled" || result.status === "ignored") return "info";
+  return "error";
+}
+
+function refreshMessage(result: RefreshMemoryResult): string {
+  if (result.status === "disabled") return "memory refresh skipped: disabled";
+  if (result.status === "ignored") return "memory refresh skipped: ignored";
+  if (result.status === "unavailable") {
+    return `memory refresh unavailable: ${result.error ?? "memory root unavailable"}`;
+  }
+  if (result.status === "failed") {
+    return `memory refresh failed: ${result.error ?? "compactor failed"}`;
+  }
+
+  return [
+    `memory refresh proposal created: ${result.outputDir}`,
+    `${result.topicFileCount ?? 0} topic file(s), ${result.findingCount ?? 0} finding(s)`,
+    `index ${result.originalIndexLineCount ?? 0} -> ${result.proposedIndexLineCount ?? 0} line(s)`,
+    "durable memory was not modified",
+  ].join("\n");
+}
+
+function refreshOutputDir(args: string): string | undefined {
+  const trimmed = args.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export default function memorySubstrateExtension(
   pi: PiEventApi,
   options: MemorySubstrateExtensionOptions = {},
@@ -267,6 +301,20 @@ export default function memorySubstrateExtension(
       core ??= createCore(ctx, pi, options);
       const result = await core.validateMemory();
       ctx.ui?.notify?.(validationMessage(result), validationLevel(result));
+    },
+  });
+
+  pi.registerCommand?.("memory-refresh", {
+    description: "Write a reviewable memory compaction proposal outside the memory root",
+    handler: (args, ctx) => {
+      if (memoryDisabled(ctx, options)) {
+        core = undefined;
+        ctx.ui?.notify?.("memory refresh skipped: disabled", "info");
+        return;
+      }
+      core ??= createCore(ctx, pi, options);
+      const result = core.refreshMemory({ outputDir: refreshOutputDir(args) });
+      ctx.ui?.notify?.(refreshMessage(result), refreshLevel(result));
     },
   });
 }

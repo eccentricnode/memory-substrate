@@ -1,7 +1,8 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
 - P0 — pi-dev forced-write extension.
-  - Status: implementation is broadly complete and offline-green, but live-integration and remaining conformance gaps still block calling this target done.
+  - Status: forced-write is offline-green; the live pi.dev harness remains opt-in rather than a completion blocker.
+  - Open hardening to investigate: dry-run proposals do not currently validate proposed output before returning; live worker JSON parsing accepts fenced/surrounding text despite the exact-object prompt; worker dedupe frontmatter parsing may treat flat top-level `type:` as typed even though the validator rejects flat `type`.
   - Completed: resolved the model-default contract conflict in favor of provider-qualified `openai-codex/gpt-5.3-codex-spark`. Live probes on 2026-06-08 showed bare/Anthropic `claude-haiku-4-5` fails third-party usage auth, while Spark succeeds; specs/docs/default constant/tests now align.
   - Completed: live worker performs local `pi --list-models` preflight and fails before the worker prompt for bare, ambiguous, or absent `PI_MEMORY_MODEL` values.
   - Completed: live worker now performs an authenticated no-tools reachability preflight for the selected default or `PI_MEMORY_MODEL` after registry validation and before sending candidate batch content; failures fail closed with retained queue and clear audit/status.
@@ -93,10 +94,11 @@
   - Completed: `AGENTS.md`, specs/01, specs/07, adapter README, tests, and implementation constant now use the provider-qualified Spark default so model guidance is not contradictory.
 
 - P2 — Later extension capabilities.
-  - Status: compactor and migrator completed.
-  - Open: decide whether pi.dev should expose optional compaction/refresh command wiring around `reference/compactor.ts`; this is optional under SPEC §6.2 and should not block forced-write conformance.
+  - Status: compactor, pi-dev refresh command, and migrator completed.
   - Completed: `reference/compactor.ts` adds a CLI/API that reads the memory root, emits proposed `MEMORY.md` plus `COMPACTION_REPORT.md` to an output directory outside the root, and does not mutate durable memory.
+  - Completed: the pi-dev extension exposes `/memory-refresh`, backed by `reference/compactor.ts`, to create a reviewable `MEMORY.md` plus `COMPACTION_REPORT.md` proposal outside the memory root without mutating durable memory.
   - Verified: compactor covered by `tests/reference-compactor.test.ts`.
+  - Verified: refresh command tests passed: `bun test tests/validate-command.test.ts tests/reference-compactor.test.ts`; 15 pass.
   - Completed: `reference/migrator.ts` adds a CLI/API that converts historical PAI-shaped memory directories into a reviewable `memory/` proposal plus `MIGRATION_REPORT.md` without mutating the source.
   - Completed: migrator normalizes flat `type:` frontmatter into `metadata.type`, infers frontmatter for imported markdown files, rebuilds a validator-clean `MEMORY.md`, records ambiguous/non-pointer/broken/duplicate source index lines in the report, and validates the proposed memory root with `reference/validator.ts`.
   - Completed: `specs/10-pai-migrator-input-schema.md` formalizes the accepted PAI source shapes.
@@ -107,6 +109,7 @@
   - Verified: migrator processed the historical PAI memory root from `STRATEGY.md` in a temporary proposal; exit 0, 93/93 topic files migrated, proposed index 103 lines, no output-validation failure.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 46 tests, 212 expectations across 8 files.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 88 pass, 7 skip, 467 expectations across 95 tests.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 90 pass, 7 skip, 479 assertions across 97 tests in 9 files.
   - Completed: audit schema coverage added for queue/worker records, bounded output tails, validator result fields, and absence of audit bookkeeping from injected prompt text.
   - Verified: focused lifecycle/worker tests passed: `bun test tests/lifecycle-and-worker.test.ts`; exit 0, 10 pass, 69 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 61 pass, 315 expectations across 8 files.

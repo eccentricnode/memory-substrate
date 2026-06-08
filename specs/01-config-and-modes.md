@@ -27,7 +27,7 @@ operating modes. These are checked before any other work in every event handler.
   changed paths but write nothing to disk.
 
 ### Configuration resolution
-- Memory root resolves deterministically from host config (SPEC §6.1.1), defaulting to the
+- Memory root resolves deterministically from host config (SPEC §6.1), defaulting to the
   substrate-neutral canonical root; never assume a hard-coded absolute path.
 - In enabled mode, a resolved memory root is available only when `MEMORY.md` already exists
   at its root as a regular file. A missing, directory, or symlinked index is an unavailable

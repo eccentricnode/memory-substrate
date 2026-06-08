@@ -1,5 +1,10 @@
 import { resolveRuntimeConfig, type RuntimeConfig, type RuntimeEnv } from "./config.ts";
 import {
+  compactMemoryDirectory,
+  type CompactionReport,
+  type CompactMemoryDirectoryOptions,
+} from "../../../reference/compactor.ts";
+import {
   buildMemoryInjection,
   INJECTION_MAX_BYTES,
   INJECTION_MAX_LINES,
@@ -36,6 +41,7 @@ export interface MemoryExtensionCoreOptions {
   fs?: InjectionFileSystem;
   worker?: MemoryWorkerRunner;
   validator?: MemoryValidatorRunner;
+  compactor?: MemoryCompactorRunner;
   state?: ExtensionStateSink;
   scheduler?: MemoryScheduler;
 }
@@ -43,6 +49,11 @@ export interface MemoryExtensionCoreOptions {
 export type MemoryValidatorRunner = (
   memoryRoot: string,
 ) => Promise<MemoryValidationResult>;
+
+export type MemoryCompactorRunner = (
+  memoryRoot: string,
+  options?: CompactMemoryDirectoryOptions,
+) => CompactionReport;
 
 export interface BeforeAgentStartEvent {
   prompt: string;
@@ -121,6 +132,23 @@ export interface FlushMemoryResult {
 
 export interface FlushMemoryOptions {
   drain?: boolean;
+}
+
+export interface RefreshMemoryOptions {
+  outputDir?: string;
+  force?: boolean;
+}
+
+export interface RefreshMemoryResult {
+  status: "proposal-created" | "disabled" | "ignored" | "unavailable" | "failed";
+  memoryRoot?: string;
+  outputDir?: string;
+  findingCount?: number;
+  topicFileCount?: number;
+  originalIndexLineCount?: number;
+  proposedIndexLineCount?: number;
+  writtenFiles: string[];
+  error?: string;
 }
 
 export interface InjectionAuditRecord {
@@ -220,6 +248,7 @@ export class MemoryExtensionCore {
   private fs?: InjectionFileSystem;
   private worker?: MemoryWorkerRunner;
   private validator: MemoryValidatorRunner;
+  private compactor: MemoryCompactorRunner;
   private state?: ExtensionStateSink;
   private scheduler: MemoryScheduler;
   private queue: MemoryBatchItem[] = [];
@@ -235,6 +264,7 @@ export class MemoryExtensionCore {
     this.fs = options.fs;
     this.worker = options.worker;
     this.validator = options.validator ?? runReferenceValidator;
+    this.compactor = options.compactor ?? compactMemoryDirectory;
     this.state = options.state;
     this.scheduler = options.scheduler ?? defaultScheduler();
     if (this.ignoreForSession) {
@@ -423,6 +453,51 @@ export class MemoryExtensionCore {
         memoryRoot: this.config.memoryRoot,
         error: error instanceof Error ? error.message : String(error),
         outputTail: "",
+      };
+    }
+  }
+
+  refreshMemory(options: RefreshMemoryOptions = {}): RefreshMemoryResult {
+    if (!this.config.enabled) {
+      return {
+        status: "disabled",
+        error: "memory refresh suppressed: memory is disabled",
+        writtenFiles: [],
+      };
+    }
+    if (this.ignoreForSession) {
+      return {
+        status: "ignored",
+        error: "memory refresh suppressed: memory is ignored",
+        writtenFiles: [],
+      };
+    }
+    if (this.config.error || !this.config.memoryRoot) {
+      return {
+        status: "unavailable",
+        error: this.config.error ?? "memory root unavailable",
+        writtenFiles: [],
+      };
+    }
+
+    try {
+      const report = this.compactor(this.config.memoryRoot, options);
+      return {
+        status: "proposal-created",
+        memoryRoot: report.root,
+        outputDir: report.outputDir,
+        findingCount: report.findings.length,
+        topicFileCount: report.topicFileCount,
+        originalIndexLineCount: report.originalIndexLineCount,
+        proposedIndexLineCount: report.proposedIndexLineCount,
+        writtenFiles: report.writtenFiles,
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        memoryRoot: this.config.memoryRoot,
+        error: error instanceof Error ? error.message : String(error),
+        writtenFiles: [],
       };
     }
   }

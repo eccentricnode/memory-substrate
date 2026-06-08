@@ -136,7 +136,7 @@ Before writing a new memory:
 
 ### 3.5 Prompt-bakeable form
 
-Adapters MUST ship a prompt-text block (≤80 lines) that encodes §3.1–§3.4 in instructions the host can drop into a system prompt, skill, or AGENTS.md surface. This is the substrate-independent write protocol; the host's job is delivering it to the model.
+Adapters MUST ship a prompt-text block (≤80 lines) that encodes §3.1–§3.4 in instructions the host can drop into a system prompt, skill, or AGENTS.md surface. This is the substrate-independent write protocol for prompt-only fallback; the host's job is delivering the same write rules to the model or forced-write decision surface it uses.
 
 ---
 
@@ -239,7 +239,7 @@ Every adapter MUST provide:
 
 1. **Path resolution** — answer: where is `<memory_root>` for this host?
 2. **Bootstrap wiring** — provide `MEMORY.md` index bootstrap context per §4.1.
-3. **Write protocol delivery** — inject §3.5 prompt-bakeable form into the host's system-prompt surface (system prompt, CLAUDE.md, AGENTS.md, skill, etc.).
+3. **Write protocol delivery** — deliver §3.5 write rules to the active write-decision surface. Prompt-only adapters inject the prompt-bakeable form into the host's system-prompt surface (system prompt, CLAUDE.md, AGENTS.md, skill, etc.); forced-write adapters MAY deliver the rules to a worker/applicator decision surface instead, if they document the prompt-bakeable fallback.
 4. **Ignore signal** — honor §4.4 when active.
 5. **Disabled signal** — honor §4.5 when active.
 6. **Validator invocation** — expose a `validate` command that runs against the memory directory.
@@ -259,7 +259,7 @@ An adapter is v0.1-conformant if it answers YES to all of:
 
 - [ ] Resolves `<memory_root>` deterministically given host config
 - [ ] Provides `MEMORY.md` index bootstrap context per §4.1
-- [ ] Injects the write protocol prompt block into the host's system-prompt surface
+- [ ] Delivers the write protocol to the active write-decision surface, with documented prompt-bakeable fallback when not injected into the host prompt
 - [ ] Honors ignore mode (no writes, no citations)
 - [ ] Honors disabled mode (no bootstrap, no I/O)
 - [ ] Invokes the reference validator and surfaces its output
