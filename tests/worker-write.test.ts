@@ -163,10 +163,15 @@ describe("deterministic memory worker write path", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(topicFiles(root)).toHaveLength(1);
-    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+    const topics = topicFiles(root);
+    expect(topics).toHaveLength(1);
+    expect(readFileSync(join(root, topics[0] ?? ""), "utf8")).toContain(
       "preserve compaction preparation as candidate content",
     );
+    const pointer = readFileSync(join(root, "MEMORY.md"), "utf8")
+      .split(/\r?\n/)
+      .find((line) => line.startsWith("- ["));
+    expect(pointer?.length).toBeLessThanOrEqual(150);
   });
 
   test("repeated durable fact updates instead of duplicating", async () => {
@@ -450,6 +455,66 @@ describe("deterministic memory worker write path", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("MEMORY.md would exceed 25600-byte cap");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("refuses over-cap rendered pointer lines before writing topic files", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "this-topic-name-is-long-enough-to-make-the-index-pointer-overflow",
+          title:
+            "This title is also intentionally long enough to overflow before hook text is added",
+          description: "pointer line overflow",
+          body: "pointer line overflow",
+          hook: "this hook fits its own cap but not the full rendered pointer line",
+          relativePath:
+            "project_this-topic-name-is-long-enough-to-make-the-index-pointer-overflow.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is pointer line overflow."),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "MEMORY.md pointer prefix would exceed 150-character cap",
+    );
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("dry-run refuses over-cap rendered pointer lines without proposed output", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "dry-run-pointer-line-overflow-for-active-adapter-cap",
+          title:
+            "Dry run pointer line overflow for active adapter cap before hook text is added",
+          description: "dry-run pointer line overflow",
+          body: "dry-run pointer line overflow",
+          hook: "this hook fits its own cap but not the full rendered pointer line",
+          relativePath: "project_dry-run-pointer-line-overflow-for-active-adapter-cap.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is dry-run pointer line overflow.", true),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("pointer prefix would exceed 150-character cap");
+    expect(result.stdout).toBeUndefined();
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });

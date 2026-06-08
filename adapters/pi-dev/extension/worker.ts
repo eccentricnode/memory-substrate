@@ -132,6 +132,7 @@ const VALID_TYPES = new Set<MemoryType>([
 ]);
 const DESCRIPTION_CAP = 200;
 const HOOK_CAP = 150;
+const INDEX_POINTER_LINE_CAP = 150;
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
@@ -439,12 +440,37 @@ function renderTopic(draft: RequiredUpsertMemoryDraft): string {
   return `---\nname: ${draft.name}\ndescription: ${draft.description}\nmetadata:\n  type: ${draft.type}\n---\n\n${draft.body}\n`;
 }
 
+function indexPointerPrefix(
+  topicRelativePath: string,
+  draft: RequiredUpsertMemoryDraft,
+): string {
+  return `- [${draft.title}](${topicRelativePath}) — `;
+}
+
+function fitDraftHookToPointerLine(
+  topicRelativePath: string,
+  draft: RequiredUpsertMemoryDraft,
+): RequiredUpsertMemoryDraft {
+  const prefix = indexPointerPrefix(topicRelativePath, draft);
+  const maxHookLength = INDEX_POINTER_LINE_CAP - prefix.length;
+  if (maxHookLength < 1) {
+    throw new Error(
+      `MEMORY.md pointer prefix would exceed ${INDEX_POINTER_LINE_CAP}-character cap (${prefix.length} chars)`,
+    );
+  }
+  const hook = oneLine(draft.hook, maxHookLength);
+  if (!hook) {
+    throw new Error("memory hook is required");
+  }
+  return hook === draft.hook ? draft : { ...draft, hook };
+}
+
 function upsertIndexContent(
   index: string,
   topicRelativePath: string,
   draft: RequiredUpsertMemoryDraft,
 ): string {
-  const line = `- [${draft.title}](${topicRelativePath}) — ${draft.hook}`;
+  const line = `${indexPointerPrefix(topicRelativePath, draft)}${draft.hook}`;
   const lines = index.split(/\r?\n/);
   let replaced = false;
   const nextLines = lines.map((existing) => {
@@ -474,11 +500,20 @@ function removeIndexPointers(index: string, topicRelativePath: string): string {
 }
 
 function assertIndexWithinAdapterCaps(index: string): void {
-  const lineCount = index.split(/\r?\n/).length;
+  const lines = index.split(/\r?\n/);
+  const lineCount = lines.length;
   if (lineCount > INDEX_LINE_CAP) {
     throw new Error(
       `MEMORY.md would exceed ${INDEX_LINE_CAP}-line cap (${lineCount} lines)`,
     );
+  }
+  for (const [index, line] of lines.entries()) {
+    if (!line.startsWith("- [")) continue;
+    if (line.length > INDEX_POINTER_LINE_CAP) {
+      throw new Error(
+        `MEMORY.md pointer line ${index + 1} would exceed ${INDEX_POINTER_LINE_CAP}-character cap (${line.length} chars)`,
+      );
+    }
   }
   const byteSize = Buffer.byteLength(index, "utf8");
   if (byteSize > INDEX_BYTE_CAP) {
@@ -761,7 +796,7 @@ You do not have file tools in this worker. Return structured write drafts only; 
 extension will perform the confined two-step save and validator run.
 
 Output exactly one JSON object, with no markdown fences and no commentary:
-{"drafts":[{"action":"upsert","type":"project","description":"one line <=200 chars","body":"markdown body","hook":"index hook <=150 chars","title":"Index title","name":"kebab-case-name","relativePath":"project_kebab-case-name.md"}]}
+{"drafts":[{"action":"upsert","type":"project","description":"one line <=200 chars","body":"markdown body","hook":"short index hook; the full rendered MEMORY.md pointer line must be <=150 chars","title":"Index title","name":"kebab-case-name","relativePath":"project_kebab-case-name.md"}]}
 
 To remove a stale or contradicted existing memory, use a delete draft:
 {"drafts":[{"action":"delete","relativePath":"project_stale-topic.md","description":"why this memory is stale"}]}
@@ -771,6 +806,7 @@ Rules:
 - action defaults to upsert when omitted.
 - upsert type must be one of user, feedback, project, reference.
 - feedback and project bodies must start with the fact, then include **Why:** and **How to apply:** lines.
+- hook, title, and relativePath together must render a MEMORY.md pointer line no longer than 150 characters.
 - delete drafts must target an existing topic relativePath from the snapshot.
 - relativePath must be inside the memory root and must not be MEMORY.md.
 - If no memory should be written, output {"drafts":[]}.
@@ -929,12 +965,13 @@ export async function applyMemoryWriteDrafts(
     const topicRelativePath = existingPath
       ? relativeTopicPath(request.memoryRoot, existingPath)
       : relativeTopicPath(request.memoryRoot, preferredPath);
+    const fittedDraft = fitDraftHookToPointerLine(topicRelativePath, draft);
     const topicPath = existingPath
       ? safePath(request.memoryRoot, topicRelativePath)
       : preferredPath;
     proposedPaths.add(topicPath);
     proposedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
-    return { action: "upsert", draft, topicPath, topicRelativePath };
+    return { action: "upsert", draft: fittedDraft, topicPath, topicRelativePath };
   });
 
   if (request.dryRun) {
