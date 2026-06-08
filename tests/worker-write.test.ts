@@ -751,6 +751,31 @@ Existing rule.
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("over-cap descriptions are refused instead of truncated", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "x".repeat(201),
+          body:
+            "over-cap description\n\n**Why:** Worker drafts must satisfy the contract before writing.\n\n**How to apply:** Refuse malformed drafts instead of silently fitting them.",
+          hook: "over-cap description",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is over-cap description."),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("description must be <=200 characters");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
   test("delete markdown descriptions are refused before mutation", async () => {
     const root = memoryRoot();
     writeExistingMemory(root);
@@ -770,6 +795,31 @@ Existing rule.
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("reason must not contain markdown");
+    expect(readFileSync(join(root, "project_stale-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
+  });
+
+  test("over-cap delete reasons are refused instead of truncated", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const beforeTopic = readFileSync(join(root, "project_stale-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_stale-rule.md",
+          description: "x".repeat(201),
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("delete reason must be <=200 characters");
     expect(readFileSync(join(root, "project_stale-rule.md"), "utf8")).toBe(
       beforeTopic,
     );

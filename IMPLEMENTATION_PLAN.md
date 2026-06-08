@@ -15,11 +15,6 @@
   - Plan: reuse/export a shared parser or make the worker parser accept only validator-conformant `metadata.type` for trusted type matching.
   - Plan: add a worker regression with an existing flat-`type:` topic proving dedupe cannot rely on validator-invalid type metadata.
 
-- P1 — Worker draft contract strictness.
-  - Status: open; `normalizeDraft()` truncates over-cap descriptions/hooks instead of refusing all malformed worker drafts.
-  - Plan: refuse worker-supplied descriptions that exceed the 200-character cap; keep hook fitting only where the adapter intentionally trims to satisfy the rendered `MEMORY.md` pointer-line cap, or document/refine the contract if hook trimming remains desired.
-  - Plan: add tests for over-cap descriptions and delete reasons so malformed live JSON cannot be normalized into accepted output.
-
 - P1 — Delete drafts must target topic memories only.
   - Status: open; delete drafts reject `MEMORY.md` and out-of-root paths, but any existing `.md` file under the root can be deleted without first proving it is a valid topic memory.
   - Plan: before delete planning, require valid topic frontmatter and an index pointer for the target, or use the reference validator/topic parser to classify it as an existing topic memory.
@@ -61,6 +56,7 @@
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
 
 - Completed — Core pi-dev forced-write surface.
+  - Worker draft normalization now refuses over-cap upsert descriptions and delete reasons instead of truncating malformed live worker JSON into accepted writes; hook fitting remains limited to rendered `MEMORY.md` pointer cap behavior. Focused `bun test tests/worker-write.test.ts` passed with 28 pass, and full `bunx tsc --noEmit && bun test` passed with 98 pass, 7 skip, 0 fail.
   - `/memory-refresh` now writes reviewable compaction proposals only under `.memory-substrate/refresh-proposal` inside the resolved memory root, rejects explicit outside-root output, and keeps hidden proposals out of validator topic scans; `bunx tsc --noEmit && bun test` passed with 96 pass and 7 skip.
   - Model preflight now validates only provider-qualified shape; `worker.ts` no longer calls `pi --list-models`, reachability comes from the no-tools subprocess, docs/specs/tests were updated, and `bunx tsc --noEmit && bun test` passed with 94 pass and 7 skip.
   - Event batching/debounce/max-batch/compaction flush are implemented and test-covered.

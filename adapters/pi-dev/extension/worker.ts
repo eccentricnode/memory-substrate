@@ -238,6 +238,21 @@ function oneLine(value: string, cap: number): string {
   return line.slice(0, cap - 1).trimEnd();
 }
 
+function requiredOneLineField(
+  value: string | undefined,
+  fieldName: string,
+  cap: number,
+): string {
+  const line = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!line) throw new Error(`memory ${fieldName} is required`);
+  if (line.length > cap) {
+    throw new Error(
+      `memory ${fieldName} must be <=${cap} characters (${line.length} chars)`,
+    );
+  }
+  return line;
+}
+
 function textFromMessage(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(textFromMessage).filter(Boolean).join("\n");
@@ -490,8 +505,9 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
     if (!relativePath.endsWith(".md") || basename(relativePath) === "MEMORY.md") {
       throw new Error(`invalid topic memory path: ${relativePath}`);
     }
-    const reason = oneLine(
-      draft.description ?? draft.body ?? "delete stale or contradicted memory",
+    const reason = requiredOneLineField(
+      draft.description ?? draft.body,
+      "delete reason",
       DESCRIPTION_CAP,
     );
     if (hasMarkdown(reason)) {
@@ -509,8 +525,11 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   if (!VALID_TYPES.has(draft.type as MemoryType)) {
     throw new Error(`invalid memory type: ${draft.type}`);
   }
-  const description = oneLine(draft.description ?? "", DESCRIPTION_CAP);
-  if (!description) throw new Error("memory description is required");
+  const description = requiredOneLineField(
+    draft.description,
+    "description",
+    DESCRIPTION_CAP,
+  );
   if (hasMarkdown(description)) {
     throw new Error("memory description must not contain markdown formatting");
   }
