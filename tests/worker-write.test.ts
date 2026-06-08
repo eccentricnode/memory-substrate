@@ -751,6 +751,31 @@ Existing rule.
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("delete markdown descriptions are refused before mutation", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const beforeTopic = readFileSync(join(root, "project_stale-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_stale-rule.md",
+          description: "**stale** memory",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("reason must not contain markdown");
+    expect(readFileSync(join(root, "project_stale-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
+  });
+
   test("project and feedback drafts require why and how body sections", async () => {
     const root = memoryRoot();
     const before = readFileSync(join(root, "MEMORY.md"), "utf8");

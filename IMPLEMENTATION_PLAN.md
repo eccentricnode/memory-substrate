@@ -2,7 +2,9 @@
 
 - P0 — pi-dev forced-write extension.
   - Status: forced-write is offline-green; the live pi.dev harness remains opt-in rather than a completion blocker.
-  - Open hardening to investigate: dry-run proposals do not currently validate proposed output before returning; live worker JSON parsing accepts fenced/surrounding text despite the exact-object prompt; worker dedupe frontmatter parsing may treat flat top-level `type:` as typed even though the validator rejects flat `type`.
+  - Open hardening to investigate: dry-run proposals do not currently validate proposed output before returning; worker dedupe frontmatter parsing may treat flat top-level `type:` as typed even though the validator rejects flat `type`.
+  - Completed: strict live worker JSON parsing now requires exactly one JSON object with no fences, commentary, or surrounding text.
+  - Completed: delete draft descriptions/reasons now reject markdown before mutation.
   - Completed: resolved the model-default contract conflict in favor of provider-qualified `openai-codex/gpt-5.3-codex-spark`. Live probes on 2026-06-08 showed bare/Anthropic `claude-haiku-4-5` fails third-party usage auth, while Spark succeeds; specs/docs/default constant/tests now align.
   - Completed: live worker performs local `pi --list-models` preflight and fails before the worker prompt for bare, ambiguous, or absent `PI_MEMORY_MODEL` values.
   - Completed: live worker now performs an authenticated no-tools reachability preflight for the selected default or `PI_MEMORY_MODEL` after registry validation and before sending candidate batch content; failures fail closed with retained queue and clear audit/status.
@@ -48,6 +50,8 @@
   - Verified: local typecheck passed: `bunx tsc --noEmit`.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 87 pass, 457 expectations.
   - Verified: live harness remains opt-in and skipped by the offline green gate: `bunx tsc --noEmit && bun test`; 87 pass, 7 skip, 457 expectations across 94 tests.
+  - Verified: current increment focused tests passed: `bun test tests/live-worker.test.ts tests/worker-write.test.ts`; 38 pass, 210 expectations.
+  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 93 pass, 7 skip, 491 expectations.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.

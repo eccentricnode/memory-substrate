@@ -259,6 +259,38 @@ describe("live pi memory worker runner", () => {
     expect(topicFiles(root)).toEqual([]);
   });
 
+  test("fenced live worker JSON fails without writing", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(
+      `\`\`\`json
+${JSON.stringify({ drafts: [] })}
+\`\`\``,
+    );
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("exactly one JSON object");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
+  test("surrounded live worker JSON fails without writing", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(
+      `Here is the structured response:\n${JSON.stringify({ drafts: [] })}`,
+    );
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("exactly one JSON object");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
   test("live upsert drafts must carry the full structured contract", async () => {
     const root = memoryRoot();
     const process = recordingProcess(

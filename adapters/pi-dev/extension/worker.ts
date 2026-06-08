@@ -495,13 +495,17 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
     if (!relativePath.endsWith(".md") || basename(relativePath) === "MEMORY.md") {
       throw new Error(`invalid topic memory path: ${relativePath}`);
     }
+    const reason = oneLine(
+      draft.description ?? draft.body ?? "delete stale or contradicted memory",
+      DESCRIPTION_CAP,
+    );
+    if (hasMarkdown(reason)) {
+      throw new Error("delete memory reason must not contain markdown formatting");
+    }
     return {
       action,
       relativePath,
-      reason: oneLine(
-        draft.description ?? draft.body ?? "delete stale or contradicted memory",
-        DESCRIPTION_CAP,
-      ),
+      reason,
     };
   }
   if (action !== "upsert") {
@@ -986,15 +990,9 @@ function extractJsonObject(stdout: string): unknown {
   try {
     return JSON.parse(trimmed);
   } catch {
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
-    if (fenced) return JSON.parse(fenced);
-
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start !== -1 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
-    throw new Error("live worker did not return JSON");
+    throw new Error(
+      "live worker did not return exactly one JSON object with no surrounding text",
+    );
   }
 }
 
