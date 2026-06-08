@@ -29,9 +29,11 @@ operating modes. These are checked before any other work in every event handler.
 ### Configuration resolution
 - Memory root resolves deterministically from host config (SPEC §6.1.1), defaulting to the
   substrate-neutral canonical root; never assume a hard-coded absolute path.
-- Worker model resolves from `PI_MEMORY_MODEL`, defaulting to a cheap model that exists in
-  this host's registry (`claude-haiku-4-5`). The build must confirm the default against
-  `pi --list-models` and must never default to a name absent from the registry.
+- Worker model resolves from `PI_MEMORY_MODEL`, defaulting to a provider-qualified model
+  that exists in this host's registry and is reachable with the installed pi.dev account
+  (`openai-codex/gpt-5.3-codex-spark` as of 2026-06-08). The build must confirm the
+  default against `pi --list-models` and must never default to a name absent from the
+  registry or known to fail account authentication.
 - Debounce window and max batch size resolve from `PI_MEMORY_DEBOUNCE_MS` and
   `PI_MEMORY_MAX_BATCH_ITEMS` with sane defaults; both are tunable without code changes.
 

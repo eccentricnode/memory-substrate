@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore } from "../adapters/pi-dev/extension/core.ts";
 import {
   createDeterministicMemoryWorkerRunner,
@@ -42,12 +43,12 @@ function request(root: string, message: string, dryRun = false): MemoryWorkerReq
     batchId: "batch-1",
     cwd: tempDir(),
     memoryRoot: root,
-    model: "claude-haiku-4-5",
+    model: DEFAULT_WORKER_MODEL,
     dryRun,
     env: {
       PI_MEMORY_ENABLED: "0",
       PI_MEMORY_ROOT: root,
-      PI_MEMORY_MODEL: "claude-haiku-4-5",
+      PI_MEMORY_MODEL: DEFAULT_WORKER_MODEL,
       PI_MEMORY_DRY_RUN: dryRun ? "1" : "0",
     },
     items: [

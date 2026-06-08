@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore, type MemoryScheduler } from "../adapters/pi-dev/extension/core.ts";
 import type {
   MemoryWorkerRequest,
@@ -280,7 +281,7 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
       env: {
         PI_MEMORY_ROOT: root,
         PI_MEMORY_DRY_RUN: "1",
-        PI_MEMORY_MODEL: "claude-haiku-4-5",
+        PI_MEMORY_MODEL: DEFAULT_WORKER_MODEL,
       },
       worker,
     });
@@ -291,7 +292,7 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(worker.requests).toHaveLength(1);
     expect(worker.requests[0]?.dryRun).toBe(true);
     expect(worker.requests[0]?.memoryRoot).toBe(root);
-    expect(worker.requests[0]?.model).toBe("claude-haiku-4-5");
+    expect(worker.requests[0]?.model).toBe(DEFAULT_WORKER_MODEL);
     expect(worker.requests[0]?.env.PI_MEMORY_ENABLED).toBe("0");
     expect(worker.requests[0]?.env.PI_MEMORY_DRY_RUN).toBe("1");
   });
@@ -375,7 +376,7 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(runRecord).toMatchObject({
       reason: "manual",
       itemCount: 1,
-      model: "claude-haiku-4-5",
+      model: DEFAULT_WORKER_MODEL,
       dryRun: true,
       status: "completed",
       exitCode: 0,

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
 export const DEFAULT_MEMORY_ROOT = "~/.memory";
-export const DEFAULT_WORKER_MODEL = "claude-haiku-4-5";
+export const DEFAULT_WORKER_MODEL = "openai-codex/gpt-5.3-codex-spark";
 export const DEFAULT_DEBOUNCE_MS = 3_000;
 export const DEFAULT_MAX_BATCH_ITEMS = 8;
 

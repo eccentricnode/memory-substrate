@@ -139,6 +139,11 @@ const VALIDATOR_PATH = fileURLToPath(
   new URL("../../../reference/validator.ts", import.meta.url),
 );
 
+interface PiModelRegistryEntry {
+  provider: string;
+  model: string;
+}
+
 function isInsideRoot(root: string, target: string): boolean {
   const resolvedRoot = resolve(root);
   const resolvedTarget = resolve(target);
@@ -647,6 +652,79 @@ function defaultLivePiProcessExecutor(
   });
 }
 
+function parsePiModelRegistry(stdout: string): PiModelRegistryEntry[] {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const entries: PiModelRegistryEntry[] = [];
+  for (const line of lines) {
+    if (line.startsWith("provider ")) continue;
+    const [provider, model] = line.split(/\s+/);
+    if (!provider || !model) continue;
+    entries.push({ provider, model });
+  }
+  return entries;
+}
+
+function validateProviderQualifiedModel(
+  model: string,
+  entries: PiModelRegistryEntry[],
+): string | undefined {
+  const trimmed = model.trim();
+  const slashIndex = trimmed.indexOf("/");
+  const provider = slashIndex === -1 ? "" : trimmed.slice(0, slashIndex);
+  const modelId = slashIndex === -1 ? trimmed : trimmed.slice(slashIndex + 1);
+
+  if (!provider || !modelId || modelId.includes("/")) {
+    const matchingProviders = entries
+      .filter((entry) => entry.model === trimmed)
+      .map((entry) => entry.provider)
+      .sort((a, b) => a.localeCompare(b));
+    const hint =
+      matchingProviders.length > 0
+        ? `; matching providers: ${matchingProviders.join(", ")}`
+        : "";
+    return `memory worker model must be provider-qualified as <provider>/<model-id>: ${trimmed}${hint}`;
+  }
+
+  const found = entries.some(
+    (entry) => entry.provider === provider && entry.model === modelId,
+  );
+  if (!found) {
+    return `memory worker model is not present in pi --list-models: ${trimmed}`;
+  }
+  return undefined;
+}
+
+async function preflightLiveWorkerModel(
+  command: string,
+  model: string,
+  execProcess: LivePiProcessExecutor,
+  options: LivePiProcessOptions,
+): Promise<MemoryWorkerResult | undefined> {
+  const result = await execProcess(command, ["--list-models"], options);
+  if (result.code !== 0) {
+    return {
+      exitCode: result.code,
+      stdout: result.stdout,
+      stderr: result.stderr || "memory worker model preflight failed",
+      changedPaths: [],
+      proposedPaths: [],
+    };
+  }
+
+  const entries = parsePiModelRegistry(result.stdout);
+  const error = validateProviderQualifiedModel(model, entries);
+  if (error) {
+    return {
+      exitCode: 1,
+      stdout: result.stdout,
+      stderr: error,
+      changedPaths: [],
+      proposedPaths: [],
+    };
+  }
+  return undefined;
+}
+
 function existingMemorySnapshot(root: string): string {
   let index = "";
   try {
@@ -957,6 +1035,19 @@ export function createLivePiMemoryWorkerRunner(
   return {
     supportsEnv: true,
     async run(request) {
+      const env = childEnv(request.env);
+      const preflightFailure = await preflightLiveWorkerModel(
+        command,
+        request.model,
+        execProcess,
+        {
+          cwd: request.memoryRoot,
+          env,
+          timeoutMs,
+        },
+      );
+      if (preflightFailure) return preflightFailure;
+
       const args = [
         "--print",
         "--no-extensions",
@@ -972,7 +1063,7 @@ export function createLivePiMemoryWorkerRunner(
 
       const processResult = await execProcess(command, args, {
         cwd: request.memoryRoot,
-        env: childEnv(request.env),
+        env,
         timeoutMs,
       });
       if (processResult.code !== 0) {

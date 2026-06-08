@@ -19,7 +19,9 @@ The extension:
   `reference/validator.ts`.
 - Registers `/memory-status`, `/memory-validate`, and `/memory-flush`.
 
-The worker default model is `claude-haiku-4-5`; set `PI_MEMORY_MODEL` to override it.
+The worker default model is `openai-codex/gpt-5.3-codex-spark`; set `PI_MEMORY_MODEL`
+to override it with another reachable provider-qualified model. The live worker preflights
+the selected model against `pi --list-models` before sending candidate memory.
 
 ## Local development load
 
@@ -40,7 +42,7 @@ PI_MEMORY_ENABLED=0       # disabled mode: no bootstrap, reads, writes, validati
 PI_MEMORY_IGNORE=1        # ignore mode: no injection or writes for the session
 PI_MEMORY_DRY_RUN=1       # worker proposes paths/changes without writing
 PI_MEMORY_ROOT=~/.memory  # memory root; relative paths resolve against pi cwd
-PI_MEMORY_MODEL=claude-haiku-4-5
+PI_MEMORY_MODEL=openai-codex/gpt-5.3-codex-spark
 PI_MEMORY_DEBOUNCE_MS=3000
 PI_MEMORY_MAX_BATCH_ITEMS=8
 ```

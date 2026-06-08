@@ -15,7 +15,7 @@ capability. Source: `adapters/pi-dev/extension/`. Shared lib: `reference/`. Host
 - Run migrator:  `bun reference/migrator.ts <pai_root> <output_dir>`
 - Inspect pi extension API: `~/.local/share/mise/installs/node/25.1.0/lib/node_modules/@mariozechner/pi-coding-agent/docs/extensions.md`
 - Working extension template to copy patterns from: `~/Work/active/pai-lite/extensions/blueprint-loader.ts`
-- Available models: `pi --list-models` (there is NO `spark` model — see invariant 6)
+- Available models: `pi --list-models` (default must be provider-qualified; see invariant 6)
 
 ## Green-build gate
 A loop is green only when BOTH pass with **exactly 1** test subagent:
@@ -35,8 +35,8 @@ A loop is green only when BOTH pass with **exactly 1** test subagent:
    project-local (`.pi/extensions/` or via the test harness) only.
 5. **Dry-run before live.** Tests MUST NOT call a real model for write decisions. Use
    `PI_MEMORY_DRY_RUN=1` (prints proposed changes, writes nothing) or a stubbed worker.
-6. **Real model name.** Background worker default is `claude-haiku-4-5` (cheap, in registry).
-   `spark` from the original handoff does NOT exist here. `PI_MEMORY_MODEL` overrides.
+6. **Reachable model.** Background worker default is `openai-codex/gpt-5.3-codex-spark`;
+   Anthropic `claude-haiku-4-5` currently fails third-party usage auth. `PI_MEMORY_MODEL` overrides.
 7. **Use the reference validator** (`reference/validator.ts`) — do not reimplement (SPEC §7).
 8. **Two-step save** (SPEC §3.3): topic file + `MEMORY.md` pointer, or it's an error.
 

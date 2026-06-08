@@ -1,10 +1,15 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
 - P0 — pi-dev forced-write extension.
-  - Status: completed and verified, including the new manual `memory-flush` command.
-  - Open: strengthen dedupe fallback beyond exact-match detection; survey suggests keyword or near-duplicate handling is not yet covered.
-  - Open: add preflight model-name validation for absent `PI_MEMORY_MODEL` so a missing/invalid default fails with a clear local error instead of relying on child `pi` failure.
-  - Open: decide behavior when `MEMORY.md` is missing in enabled mode, then document and test that path.
+  - Status: implementation is broadly complete and offline-green, but live-integration and remaining conformance gaps still block calling this target done.
+  - Completed: resolved the model-default contract conflict in favor of provider-qualified `openai-codex/gpt-5.3-codex-spark`. Live probes on 2026-06-08 showed bare/Anthropic `claude-haiku-4-5` fails third-party usage auth, while Spark succeeds; specs/docs/default constant/tests now align.
+  - Completed: live worker performs local `pi --list-models` preflight and fails before the worker prompt for bare, ambiguous, or absent `PI_MEMORY_MODEL` values.
+  - Open: add authenticated reachability preflight for the selected default and `PI_MEMORY_MODEL`, failing closed with retained queue and clear audit/status before relying on child `pi` auth/provider failure.
+  - Open: add the opt-in live pi.dev integration harness required by specs/07: disposable memory root, real extension load, durable/chatter/disabled smoke cases, model/mode assertions, validator-clean output, and explicit no-out-of-root-write checks; keep it out of the default `bun test` green gate.
+  - Open: ensure produced `MEMORY.md` pointer lines satisfy the active 150-character line cap, not only the draft hook cap; reject or shorten before mutation so validator emits no pointer-length warning for adapter-produced writes.
+  - Open: strengthen dedupe fallback beyond exact-match detection; current applicator matches exact frontmatter `name` or exact description, not SPEC §3.4 keyword/near-duplicate search.
+  - Open: decide behavior when `MEMORY.md` is missing in enabled mode, then document and test that path; current injection skips missing index while writes synthesize `# Memory\n` even though the validator reports missing index as an error.
+  - Open: implement and test the now-authored worker output and retained-failure contracts in `specs/08-worker-draft-contract.md` and `specs/09-worker-failure-retention.md`.
   - Completed: live worker runner uses an env-capable launcher and runs child `pi` with `PI_MEMORY_ENABLED=0` plus isolation flags.
   - Completed: root-confined applicator remains the write authority and enforces two-step saves: topic file plus `MEMORY.md` pointer.
   - Completed: worker-supplied `relativePath` basenames are refused unless they match the normalized draft type/name filename convention, with regression coverage.
@@ -26,7 +31,9 @@
   - Verified: focused worker-write test passed: `bun test tests/worker-write.test.ts`; 14 pass.
   - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 22 pass.
   - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
+  - Verified: current increment passed focused tests and type-check: `bun test tests/live-worker.test.ts tests/config-and-injection.test.ts` and `bunx tsc --noEmit`.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 66 pass.
+  - Verified: model-default/preflight alignment green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 68 pass, 356 expectations.
 
 - P0 — Config and mode gates.
   - Status: completed and test-covered.
@@ -53,7 +60,7 @@
   - Preserve: no global install into `~/.pi/agent/extensions/`.
   - Preserve: child workers must receive `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding must keep failing closed.
   - Preserve: all writes stay confined to the resolved memory root and refuse symlink/out-of-root escapes.
-  - Preserve: default worker model is `claude-haiku-4-5`; `PI_MEMORY_MODEL` overrides.
+  - Preserve: default worker model is `openai-codex/gpt-5.3-codex-spark`; `PI_MEMORY_MODEL` overrides but must pass the same preflight.
   - Completed: specs/03 and specs/06 were clarified to match the implemented no-tools live worker, JSON draft output, and root-confined applicator safety model; one write authority enforces canonical path checks, dry-run, two-step saves, and validation.
   - Verified: default `~/.memory` root resolution is covered in `tests/config-and-injection.test.ts`.
 
@@ -68,9 +75,12 @@
 - P1 — pi-dev adapter docs/protocol.
   - Status: completed and verified.
   - Completed: `adapters/pi-dev/README.md` and `adapters/pi-dev/memory-protocol.md` document the extension-first forced-write path, bounded injection behavior, command surface, validator/root paths, and canonical index pointer format.
+  - Completed: `AGENTS.md`, specs/01, specs/07, adapter README, tests, and implementation constant now use the provider-qualified Spark default so model guidance is not contradictory.
 
 - P2 — Later extension capabilities.
   - Status: compactor and migrator completed.
+  - Open: formalize the PAI-shaped migrator input schema; current migrator behavior is conservative and reviewable but the input contract is not specified.
+  - Open: decide whether pi.dev should expose optional compaction/refresh command wiring around `reference/compactor.ts`; this is optional under SPEC §6.2 and should not block forced-write conformance.
   - Completed: `reference/compactor.ts` adds a CLI/API that reads the memory root, emits proposed `MEMORY.md` plus `COMPACTION_REPORT.md` to an output directory outside the root, and does not mutate durable memory.
   - Verified: compactor covered by `tests/reference-compactor.test.ts`.
   - Completed: `reference/migrator.ts` adds a CLI/API that converts historical PAI-shaped memory directories into a reviewable `memory/` proposal plus `MIGRATION_REPORT.md` without mutating the source.
@@ -82,4 +92,3 @@
   - Verified: focused lifecycle/worker tests passed: `bun test tests/lifecycle-and-worker.test.ts`; exit 0, 10 pass, 69 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 61 pass, 315 expectations across 8 files.
   - Current finding: specs define `reference/migrator.ts` but do not formally define the PAI-shaped input schema; the implementation therefore uses conservative inference and makes every inferred/ambiguous conversion reviewable in `MIGRATION_REPORT.md`.
-  - Next increment: formalize the PAI-shaped migrator input schema. P0 read-only survey follow-ups are tracked under the pi-dev forced-write extension section.

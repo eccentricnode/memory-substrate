@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 import {
   createLivePiMemoryWorkerRunner,
   type LivePiProcessExecutor,
@@ -17,6 +18,11 @@ import {
 } from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
+const MODEL_REGISTRY = `provider      model                       context  max-out  thinking  images
+openai-codex  gpt-5.3-codex-spark         128K     128K     yes       no
+anthropic     claude-haiku-4-5            200K     64K      yes       yes
+oc-sdk-zen    claude-haiku-4-5            200K     64K      yes       yes
+`;
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -36,17 +42,21 @@ function memoryRoot(): string {
   return root;
 }
 
-function request(root: string, dryRun = false): MemoryWorkerRequest {
+function request(
+  root: string,
+  dryRun = false,
+  model = DEFAULT_WORKER_MODEL,
+): MemoryWorkerRequest {
   return {
     batchId: "batch-1",
     cwd: tempDir(),
     memoryRoot: root,
-    model: "claude-haiku-4-5",
+    model,
     dryRun,
     env: {
       PI_MEMORY_ENABLED: "0",
       PI_MEMORY_ROOT: root,
-      PI_MEMORY_MODEL: "claude-haiku-4-5",
+      PI_MEMORY_MODEL: model,
       PI_MEMORY_DRY_RUN: dryRun ? "1" : "0",
     },
     items: [
@@ -100,6 +110,9 @@ function recordingProcess(
   }> = [];
   const process: LivePiProcessExecutor = async (command, args, options) => {
     calls.push({ command, args, options });
+    if (args[0] === "--list-models") {
+      return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
+    }
     return { code: 0, stdout, stderr: "", killed: false };
   };
   return Object.assign(process, { calls });
@@ -131,8 +144,9 @@ describe("live pi memory worker runner", () => {
     const result = await worker.run(request(root));
 
     expect(result.exitCode).toBe(0);
-    expect(process.calls).toHaveLength(1);
-    const call = process.calls[0];
+    expect(process.calls).toHaveLength(2);
+    expect(process.calls[0]?.args).toEqual(["--list-models"]);
+    const call = process.calls[1];
     expect(call?.command).toBe("pi");
     expect(call?.options.cwd).toBe(root);
     expect(call?.options.env.PI_MEMORY_ENABLED).toBe("0");
@@ -144,7 +158,7 @@ describe("live pi memory worker runner", () => {
     expect(call?.args).toContain("--no-prompt-templates");
     expect(call?.args).toContain("--no-session");
     expect(call?.args).toContain("--no-tools");
-    expect(call?.args).toContain("claude-haiku-4-5");
+    expect(call?.args).toContain(DEFAULT_WORKER_MODEL);
     expect(result.changedPaths?.some((path) => path.endsWith("MEMORY.md"))).toBe(
       true,
     );
@@ -173,7 +187,7 @@ describe("live pi memory worker runner", () => {
     const result = await worker.run(request(root, true));
 
     expect(result.exitCode).toBe(0);
-    expect(process.calls[0]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
+    expect(process.calls[1]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
     expect(result.stdout).toContain("proposed paths:");
     expect(result.stdout).toContain("- MEMORY.md");
     expect(result.stdout).toContain("- project_dry-run-memory-write.md");
@@ -239,15 +253,50 @@ describe("live pi memory worker runner", () => {
     }> = [];
     const process: LivePiProcessExecutor = async (command, args, options) => {
       calls.push({ command, args, options });
+      if (args[0] === "--list-models") {
+        return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
+      }
       return { code: 7, stdout: "", stderr: "model unavailable", killed: false };
     };
     const worker = createLivePiMemoryWorkerRunner({ process });
 
     const result = await worker.run(request(root));
 
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(result.exitCode).toBe(7);
     expect(result.stderr).toContain("model unavailable");
+    expect(topicFiles(root)).toEqual([]);
+  });
+
+  test("bare or ambiguous model fails preflight before the worker prompt", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root, false, "claude-haiku-4-5"));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("provider-qualified");
+    expect(result.stderr).toContain("anthropic");
+    expect(result.stderr).toContain("oc-sdk-zen");
+    expect(process.calls).toHaveLength(1);
+    expect(process.calls[0]?.args).toEqual(["--list-models"]);
+    expect(topicFiles(root)).toEqual([]);
+  });
+
+  test("absent provider-qualified model fails preflight before the worker prompt", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(
+      request(root, false, "openai-codex/missing-model"),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("not present in pi --list-models");
+    expect(process.calls).toHaveLength(1);
+    expect(process.calls[0]?.args).toEqual(["--list-models"]);
     expect(topicFiles(root)).toEqual([]);
   });
 });

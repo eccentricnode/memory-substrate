@@ -133,7 +133,7 @@ describe("pi-dev runtime config", () => {
         PI_MEMORY_ROOT: root,
         PI_MEMORY_DRY_RUN: "1",
         PI_MEMORY_IGNORE: "1",
-        PI_MEMORY_MODEL: "claude-haiku-4-5",
+        PI_MEMORY_MODEL: "openai-codex/gpt-5.3-codex-spark",
         PI_MEMORY_DEBOUNCE_MS: "25",
         PI_MEMORY_MAX_BATCH_ITEMS: "3",
       },
@@ -142,7 +142,7 @@ describe("pi-dev runtime config", () => {
 
     expect(config.dryRun).toBe(true);
     expect(config.ignore).toBe(true);
-    expect(config.model).toBe("claude-haiku-4-5");
+    expect(config.model).toBe("openai-codex/gpt-5.3-codex-spark");
     expect(config.debounceMs).toBe(25);
     expect(config.maxBatchItems).toBe(3);
   });
