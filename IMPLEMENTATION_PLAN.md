@@ -1,10 +1,5 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P1 — Dry-run proposal validation.
-  - Status: open; dry-run planning checks caps and prints proposed topic/index content but returns before invoking the reference validator.
-  - Plan: validate a temporary/proposed memory-root state before dry-run stdout, while leaving the real memory root unchanged.
-  - Plan: add regression coverage for a dry-run proposal that only the validator can reject, such as a broken local markdown link in the proposed topic body.
-
 - P1 — Frontmatter parser alignment in worker dedupe.
   - Status: open; worker-local frontmatter parsing treats flat top-level `type:` as typed, while the reference validator rejects flat `type:` outside `metadata.type`.
   - Plan: reuse/export a shared parser or make the worker parser accept only validator-conformant `metadata.type` for trusted type matching.
@@ -29,10 +24,6 @@
   - Status: open; spec review found `agent_end` messages are passed wholesale into worker prompts even though ordinary tool results are out of scope and audit output must stay bounded.
   - Plan: define and enforce a bounded candidate-message extraction policy for worker prompts, preserving durable user/assistant turn content while excluding bulky or tool-only payloads.
 
-- P1 — User-facing flush status should distinguish validation-failed.
-  - Status: open; audit records classify validator rollback as `validation-failed`, but `FlushMemoryResult.status` collapses it into `failed`, weakening the operator visibility required by `specs/09`.
-  - Plan: add a distinct user-facing validation-failed status/message while preserving retained queue semantics.
-
 - P2 — Exact per-write two-step ordering.
   - Status: open; spec review noted the applicator writes all topic files in a batch and then writes the index once. Rollback protects validation failures, but a process interruption between those steps can still leave incomplete topic-only writes.
   - Plan: decide whether batched atomic application is acceptable for this adapter or change application to topic+index per memory with tests documenting interruption/rollback behavior.
@@ -50,7 +41,17 @@
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
 
+- P2 — Successful no-write flush visibility.
+  - Status: open; spec/search review found `/memory-flush` still reports processed candidate count without distinguishing a successful no-write decision from a write-changing success.
+  - Plan: decide whether the worker/core result should carry accepted write/delete counts or a no-write flag, then update command output and regressions without weakening retained-failure statuses.
+
+- P2 — Worker timeout and in-flight queue edge coverage.
+  - Status: open; specs require worker timeouts to be failed retained runs and items arriving during an in-flight run to wait for the next run, but current tests do not directly pin those edges.
+  - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
+
 - Completed — Core pi-dev forced-write surface.
+  - Dry-run now applies proposed changes to a temporary copy of the memory root, runs the reference validator before printing proposed stdout, deletes the temporary root, and leaves the real root unchanged. Regression coverage proves a validator-only broken-link proposal fails dry-run without writing topic/index changes; focused `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/validate-command.test.ts` passed with 57 pass, 0 fail, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 101 pass, 7 skip, 0 fail, 108 tests across 9 files.
+  - User-facing flush results now preserve validator rollback failures as `validation-failed`, and `/memory-flush` reports a distinct validation-failed message while retaining queued candidates. Regression coverage checks both core status and command notification; focused `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/validate-command.test.ts` passed with 57 pass, 0 fail, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 101 pass, 7 skip, 0 fail, 108 tests across 9 files.
   - Live worker existing-memory snapshots are bounded to 8 KB / 40 topics, rank topic metadata against candidate batch keywords for dedupe, exclude raw non-pointer index content, and report truncation counts/flags; this keeps forced-write prompts from leaking or bloating the memory corpus. Regression coverage in `tests/live-worker.test.ts` passed, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 99 pass, 7 skip, 0 fail, 106 tests across 9 files.
   - Worker draft normalization now refuses over-cap upsert descriptions and delete reasons instead of truncating malformed live worker JSON into accepted writes; hook fitting remains limited to rendered `MEMORY.md` pointer cap behavior. Focused `bun test tests/worker-write.test.ts` passed with 28 pass, and full `bunx tsc --noEmit && bun test` passed with 98 pass, 7 skip, 0 fail.
   - `/memory-refresh` now writes reviewable compaction proposals only under `.memory-substrate/refresh-proposal` inside the resolved memory root, rejects explicit outside-root output, and keeps hidden proposals out of validator topic scans; `bunx tsc --noEmit && bun test` passed with 96 pass and 7 skip.

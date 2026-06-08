@@ -125,6 +125,7 @@ export interface FlushMemoryResult {
     | "ignored"
     | "unavailable"
     | "failed"
+    | "validation-failed"
     | "refused";
   processedItems: number;
   remainingItems: number;
@@ -179,6 +180,7 @@ interface WorkerBatchOutcome {
   status: WorkerRunStatus;
   itemCount: number;
   error?: string;
+  failureClass?: WorkerAuditRecord["failureClass"];
 }
 
 function defaultScheduler(): MemoryScheduler {
@@ -426,7 +428,12 @@ export class MemoryExtensionCore {
 
     if (stoppedBy) {
       return {
-        status: stoppedBy.status === "refused" ? "refused" : "failed",
+        status:
+          stoppedBy.status === "refused"
+            ? "refused"
+            : stoppedBy.failureClass === "validation-failed"
+              ? "validation-failed"
+              : "failed",
         processedItems,
         remainingItems: this.queue.length,
         error: stoppedBy.error,
@@ -672,10 +679,13 @@ export class MemoryExtensionCore {
       if (result.exitCode === 0) {
         return { status: "completed", itemCount: items.length };
       }
+      const failedValidation =
+        result.validator !== undefined && result.validator.exitCode !== 0;
       return {
         status: "failed",
         itemCount: items.length,
         error: result.stderr || "worker failed",
+        failureClass: failedValidation ? "validation-failed" : "failed",
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

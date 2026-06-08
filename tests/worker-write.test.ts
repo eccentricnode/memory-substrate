@@ -269,6 +269,38 @@ Use Bun commands for project automation.
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("dry-run validates proposed memory with the reference validator", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "broken-link-proposal",
+          description: "Broken link proposal",
+          body: "Broken link proposal\n\n**Why:** Dry-run must catch validator-only failures like [missing](missing.md).\n\n**How to apply:** Reject invalid proposals before showing proposed stdout.",
+          hook: "Broken link proposal",
+          title: "Broken link proposal",
+          relativePath: "project_broken-link-proposal.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is broken link proposal.", true),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("validator failed for dry-run proposal");
+    expect(result.stdout).toBeUndefined();
+    expect(result.validator?.exitCode).toBe(1);
+    expect(
+      [result.validator?.stdout, result.validator?.stderr].filter(Boolean).join("\n"),
+    ).toContain("broken link: missing.md");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
   test("missing MEMORY.md is refused before live write planning", async () => {
     const root = tempDir();
     const worker = createDeterministicMemoryWorkerRunner();

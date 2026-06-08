@@ -145,6 +145,7 @@ function flushLevel(result: FlushMemoryResult): "info" | "warn" | "error" | "suc
   if (
     result.status === "unavailable" ||
     result.status === "failed" ||
+    result.status === "validation-failed" ||
     result.status === "refused"
   ) {
     return "error";
@@ -168,6 +169,9 @@ function flushMessage(result: FlushMemoryResult): string {
   }
   if (result.status === "failed") {
     return `memory flush failed: ${result.error ?? "worker failed"}${retainedQueueSuffix(result)}`;
+  }
+  if (result.status === "validation-failed") {
+    return `memory flush validation failed: ${result.error ?? "validator failed after memory write"}${retainedQueueSuffix(result)}`;
   }
   if (result.status === "idle") {
     return "memory flush complete: no queued memory candidates";

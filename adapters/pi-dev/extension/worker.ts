@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   lstatSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -11,6 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeEnv } from "./config.ts";
@@ -757,6 +760,49 @@ function applyPlanToIndex(index: string, changePlan: MemoryChangePlan[]): string
   return nextIndex;
 }
 
+function applyPlanToRoot(root: string, changePlan: MemoryChangePlan[]): void {
+  const indexPath = safePath(root, "MEMORY.md");
+  if (!existsSync(indexPath)) {
+    throw new Error(`memory index does not exist: ${indexPath}`);
+  }
+  if (!lstatSync(indexPath).isFile()) {
+    throw new Error(`memory index is not a file: ${indexPath}`);
+  }
+  const nextIndex = applyPlanToIndex(readFileSync(indexPath, "utf8"), changePlan);
+  assertIndexWithinAdapterCaps(nextIndex);
+
+  for (const item of changePlan) {
+    const topicPath = safePath(root, item.topicRelativePath);
+    if (item.action === "upsert") {
+      mkdirSync(dirname(topicPath), { recursive: true });
+      writeFileSync(topicPath, renderTopic(item.draft));
+    } else {
+      rmSync(topicPath, { force: true });
+    }
+  }
+  writeFileSync(indexPath, nextIndex);
+}
+
+async function validateDryRunProposal(
+  request: MemoryWorkerRequest,
+  changePlan: MemoryChangePlan[],
+  validate: (memoryRoot: string) => Promise<MemoryValidationResult>,
+): Promise<MemoryValidationResult> {
+  const tempParent = mkdtempSync(join(tmpdir(), "memory-substrate-dry-run-"));
+  const tempRoot = join(tempParent, "root");
+  try {
+    cpSync(request.memoryRoot, tempRoot, {
+      recursive: true,
+      dereference: false,
+      errorOnExist: true,
+    });
+    applyPlanToRoot(tempRoot, changePlan);
+    return await validate(tempRoot);
+  } finally {
+    rmSync(tempParent, { force: true, recursive: true });
+  }
+}
+
 function cleanupEmptyDirectories(root: string, paths: string[]): void {
   const seen = new Set<string>();
   for (const path of paths) {
@@ -1281,10 +1327,24 @@ export async function applyMemoryWriteDrafts(
   });
 
   if (request.dryRun) {
+    const validator = await validateDryRunProposal(
+      request,
+      changePlan,
+      options.validate ?? runReferenceValidator,
+    );
+    if (validator.exitCode !== 0) {
+      return {
+        exitCode: 1,
+        stderr: "validator failed for dry-run proposal; real memory root unchanged",
+        proposedPaths: [...proposedPaths],
+        validator,
+      };
+    }
     return {
       exitCode: 0,
       stdout: renderDryRunProposal(request, changePlan, proposedPaths),
       proposedPaths: [...proposedPaths],
+      validator,
     };
   }
 

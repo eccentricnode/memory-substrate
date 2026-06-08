@@ -261,6 +261,36 @@ describe("pi-dev memory command surface", () => {
     expect(worker.requests).toHaveLength(1);
   });
 
+  test("memory-flush command reports validator rollback failures distinctly", async () => {
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    delete process.env.PI_MEMORY_ENABLED;
+    const worker = recordingWorker({
+      exitCode: 1,
+      stderr: "validator failed after memory write; rolled back attempted changes",
+      proposedPaths: [join(root, "MEMORY.md")],
+      validator: {
+        exitCode: 1,
+        stderr: "validator found errors",
+      },
+    });
+    const { handlers, commands } = fakePi({ worker });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_end")?.({
+      messages: ["The durable decision is to test validator rollback status."],
+    }, ctx);
+    await commands.get("memory-flush")?.handler("", ctx);
+
+    const notification = ctx.ui.notifications.at(-1);
+    expect(notification?.level).toBe("error");
+    expect(notification?.message).toContain("memory flush validation failed");
+    expect(notification?.message).toContain("rolled back attempted changes");
+    expect(notification?.message).toContain("1 queued memory candidate(s) retained");
+    expect(worker.requests).toHaveLength(1);
+  });
+
   test("memory-flush command obeys disabled mode and does not require a root", async () => {
     process.env.PI_MEMORY_ENABLED = "0";
     process.env.PI_MEMORY_ROOT = "/missing-memory-root";

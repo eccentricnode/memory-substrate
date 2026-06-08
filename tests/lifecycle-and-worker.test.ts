@@ -566,7 +566,7 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
         }
       | undefined;
 
-    expect(result.status).toBe("failed");
+    expect(result.status).toBe("validation-failed");
     expect(result.remainingItems).toBe(1);
     expect(runRecord?.status).toBe("failed");
     expect(runRecord?.failureClass).toBe("validation-failed");
