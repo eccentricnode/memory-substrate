@@ -1,3 +1,4 @@
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { resolveRuntimeConfig, type RuntimeConfig, type RuntimeEnv } from "./config.ts";
 import {
   compactMemoryDirectory,
@@ -170,6 +171,7 @@ const AUDIT_ARRAY_ITEM_CAP = 5;
 const AUDIT_OBJECT_KEY_CAP = 12;
 const AUDIT_DEPTH_CAP = 3;
 const AUDIT_PREVIEW_CAP = 1_200;
+const REFRESH_PROPOSAL_DIR = ".memory-substrate/refresh-proposal";
 const IGNORE_MODE_INSTRUCTION =
   "Memory ignore mode is active for this session. Do not cite, compare against, or apply durable memory that may already be present in context.";
 
@@ -240,6 +242,33 @@ function compactEventMessages(event: SessionBeforeCompactEvent): unknown[] {
   const keys = Object.keys(event);
   if (keys.length > 0) return [event];
   return [];
+}
+
+function isInsideRoot(root: string, target: string): boolean {
+  const resolvedRoot = resolve(root);
+  const resolvedTarget = resolve(target);
+  return (
+    resolvedTarget === resolvedRoot ||
+    resolvedTarget.startsWith(`${resolvedRoot}${sep}`)
+  );
+}
+
+function refreshProposalOutputDir(
+  memoryRoot: string,
+  cwd: string,
+  requested?: string,
+): string {
+  const outputDir =
+    requested && requested.trim().length > 0
+      ? isAbsolute(requested)
+        ? requested
+        : resolve(cwd, requested)
+      : join(memoryRoot, REFRESH_PROPOSAL_DIR);
+  const resolvedOutput = resolve(outputDir);
+  if (!isInsideRoot(memoryRoot, resolvedOutput) || resolvedOutput === resolve(memoryRoot)) {
+    throw new Error("memory refresh proposal output must be inside the memory root");
+  }
+  return resolvedOutput;
 }
 
 export class MemoryExtensionCore {
@@ -481,7 +510,17 @@ export class MemoryExtensionCore {
     }
 
     try {
-      const report = this.compactor(this.config.memoryRoot, options);
+      const outputDir = refreshProposalOutputDir(
+        this.config.memoryRoot,
+        this.config.cwd,
+        options.outputDir,
+      );
+      const report = this.compactor(this.config.memoryRoot, {
+        ...options,
+        outputDir,
+        force: options.force ?? true,
+        allowInsideRoot: true,
+      });
       return {
         status: "proposal-created",
         memoryRoot: report.root,

@@ -55,6 +55,7 @@ export interface CompactionReport {
 export interface CompactMemoryDirectoryOptions {
   outputDir?: string;
   force?: boolean;
+  allowInsideRoot?: boolean;
 }
 
 interface TopicSummary {
@@ -287,6 +288,10 @@ function renderProposedIndex(topics: TopicSummary[]): string {
 }
 
 function renderReport(report: CompactionReport): string {
+  const inRootOutput = isInsideRoot(report.root, report.outputDir);
+  const proposalBoundary = inRootOutput
+    ? "The proposal is written under a hidden in-root directory that validators and compaction scans skip, so extension writes stay confined while durable memory stays unchanged until a human accepts it."
+    : "The proposal is written outside the memory root so review cannot accidentally alter durable memory before a human accepts it.";
   const findingLines =
     report.findings.length === 0
       ? ["- No issues found; the proposal normalizes the index from topic frontmatter."]
@@ -305,7 +310,7 @@ function renderReport(report: CompactionReport): string {
 - Proposed index: ${report.proposedIndexLineCount} lines, ${report.proposedIndexBytes} bytes
 
 ## Why this matters
-Compaction protects the small, routable MEMORY.md index that adapters inject or search. The proposal is written outside the memory root so review cannot accidentally alter durable memory before a human accepts it.
+Compaction protects the small, routable MEMORY.md index that adapters inject or search. ${proposalBoundary}
 
 ## Findings
 ${findingLines.join("\n")}
@@ -318,10 +323,41 @@ Review this proposal against the existing memory directory. If it preserves the 
 `;
 }
 
-function prepareOutputDir(root: string, outputDir: string, force: boolean): string {
+function nearestExistingAncestor(path: string): string {
+  let current = path;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
+
+function prepareOutputDir(
+  root: string,
+  outputDir: string,
+  force: boolean,
+  allowInsideRoot: boolean,
+): string {
   const resolvedRoot = resolve(root);
   const resolvedOutput = resolve(outputDir);
-  if (isInsideRoot(resolvedRoot, resolvedOutput)) {
+  const outputInsideRoot = isInsideRoot(resolvedRoot, resolvedOutput);
+  if (allowInsideRoot) {
+    if (!outputInsideRoot || resolvedOutput === resolvedRoot) {
+      throw new Error("output directory must be inside the memory root");
+    }
+    const realRoot = realpathSync(resolvedRoot);
+    const realAncestor = realpathSync(nearestExistingAncestor(dirname(resolvedOutput)));
+    if (!isInsideRoot(realRoot, realAncestor)) {
+      throw new Error("output directory parent escapes memory root");
+    }
+    if (existsSync(resolvedOutput)) {
+      const realOutput = realpathSync(resolvedOutput);
+      if (!isInsideRoot(realRoot, realOutput)) {
+        throw new Error("output directory escapes memory root");
+      }
+    }
+  } else if (outputInsideRoot) {
     throw new Error("output directory must be outside the memory root");
   }
   if (existsSync(resolvedOutput)) {
@@ -351,6 +387,7 @@ export function compactMemoryDirectory(
     resolvedRoot,
     options.outputDir ?? defaultOutputDir(resolvedRoot),
     options.force ?? false,
+    options.allowInsideRoot ?? false,
   );
   const index = readIndex(resolvedRoot);
   const validatorReport = validateMemoryDirectory(resolvedRoot);

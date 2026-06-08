@@ -278,9 +278,8 @@ describe("pi-dev memory command surface", () => {
     });
   });
 
-  test("memory-refresh command writes a reviewable proposal without mutating memory", () => {
+  test("memory-refresh command writes a root-confined reviewable proposal without mutating durable memory", () => {
     const root = memoryRoot();
-    const outputDir = join(tempDir(), "refresh-proposal");
     const originalIndex =
       "# Memory\n\n- [Duplicate](project_bun-commands.md) — duplicate pointer\n- [Duplicate Again](project_bun-commands.md) — duplicate pointer\n";
     writeFileSync(
@@ -302,15 +301,16 @@ Use Bun for project automation.
     const ctx = fakeContext();
 
     handlers.get("session_start")?.({}, ctx);
-    commands.get("memory-refresh")?.handler(outputDir, ctx);
+    commands.get("memory-refresh")?.handler("", ctx);
 
+    const outputDir = join(root, ".memory-substrate", "refresh-proposal");
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(originalIndex);
     expect(existsSync(join(root, "COMPACTION_REPORT.md"))).toBe(false);
     expect(readFileSync(join(outputDir, "MEMORY.md"), "utf8")).toContain(
       "- [Bun Commands](project_bun-commands.md) — Use Bun for project automation",
     );
     expect(readFileSync(join(outputDir, "COMPACTION_REPORT.md"), "utf8")).toContain(
-      "The proposal is written outside the memory root",
+      "hidden in-root directory",
     );
 
     const notification = ctx.ui.notifications.at(-1);
@@ -318,6 +318,40 @@ Use Bun for project automation.
     expect(notification?.message).toContain("memory refresh proposal created");
     expect(notification?.message).toContain(outputDir);
     expect(notification?.message).toContain("durable memory was not modified");
+  });
+
+  test("memory-refresh command rejects explicit output outside the memory root", () => {
+    const root = memoryRoot();
+    const outputDir = join(tempDir(), "refresh-proposal");
+    writeFileSync(
+      join(root, "project_bun-commands.md"),
+      `---
+name: bun-commands
+description: Use Bun for project automation
+metadata:
+  type: project
+---
+
+Use Bun for project automation.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun Commands](project_bun-commands.md) — Use Bun for project automation\n",
+    );
+    process.env.PI_MEMORY_ROOT = root;
+    delete process.env.PI_MEMORY_ENABLED;
+    const { handlers, commands } = fakePi();
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    commands.get("memory-refresh")?.handler(outputDir, ctx);
+
+    expect(existsSync(join(outputDir, "MEMORY.md"))).toBe(false);
+    expect(ctx.ui.notifications.at(-1)?.level).toBe("error");
+    expect(ctx.ui.notifications.at(-1)?.message).toContain(
+      "proposal output must be inside the memory root",
+    );
   });
 
   test("memory-refresh command reports unavailable, ignored, and disabled modes", () => {

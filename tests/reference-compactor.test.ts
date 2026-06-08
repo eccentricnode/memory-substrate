@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { compactMemoryDirectory } from "../reference/compactor.ts";
+import { validateMemoryDirectory } from "../reference/validator.ts";
 
 const tmpRoots: string[] = [];
 
@@ -102,5 +103,32 @@ describe("reference compactor", () => {
     expect(() =>
       compactMemoryDirectory(root, { outputDir: join(root, "proposal") }),
     ).toThrow("output directory must be outside the memory root");
+  });
+
+  test("allows explicit hidden in-root proposal output without entering durable validation", () => {
+    const root = tempDir();
+    const outputDir = join(root, ".memory-substrate", "refresh-proposal");
+    writeTopic(root, "project_bun-commands.md", "bun-commands", "Use Bun for build and test commands");
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun Commands](project_bun-commands.md) — Use Bun for build and test commands\n",
+    );
+
+    const report = compactMemoryDirectory(root, {
+      outputDir,
+      allowInsideRoot: true,
+      force: true,
+    });
+    const validation = validateMemoryDirectory(root);
+
+    expect(report.writtenFiles).toEqual([
+      join(outputDir, "MEMORY.md"),
+      join(outputDir, "COMPACTION_REPORT.md"),
+    ]);
+    expect(readFileSync(join(outputDir, "COMPACTION_REPORT.md"), "utf8")).toContain(
+      "hidden in-root directory",
+    );
+    expect(validation.counts.error).toBe(0);
+    expect(validation.topicFileCount).toBe(1);
   });
 });

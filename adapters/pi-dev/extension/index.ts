@@ -305,7 +305,7 @@ export default function memorySubstrateExtension(
   });
 
   pi.registerCommand?.("memory-refresh", {
-    description: "Write a reviewable memory compaction proposal outside the memory root",
+    description: "Write a reviewable memory compaction proposal under the memory root",
     handler: (args, ctx) => {
       if (memoryDisabled(ctx, options)) {
         core = undefined;
