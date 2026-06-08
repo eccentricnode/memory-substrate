@@ -14,9 +14,6 @@ import type {
 import { createLivePiMemoryWorkerRunner } from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
-const MODEL_REGISTRY = `provider      model                       context  max-out  thinking  images
-openai-codex  gpt-5.3-codex-spark         128K     128K     yes       no
-`;
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -586,9 +583,6 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     }> = [];
     const process: LivePiProcessExecutor = async (command, args, options) => {
       calls.push({ command, args, options });
-      if (args[0] === "--list-models") {
-        return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
-      }
       return {
         code: 7,
         stdout: "",
@@ -624,9 +618,9 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(result.processedItems).toBe(0);
     expect(result.remainingItems).toBe(1);
     expect(core.pendingBatchItems).toBe(1);
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.args.join("\n")).toContain("reachability check");
-    expect(calls[1]?.args.join("\n")).not.toContain("Candidate batch");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args.join("\n")).toContain("reachability check");
+    expect(calls[0]?.args.join("\n")).not.toContain("Candidate batch");
     expect(runRecord?.status).toBe("failed");
     expect(runRecord?.failureClass).toBe("failed");
     expect(runRecord?.retainedQueueCount).toBe(1);

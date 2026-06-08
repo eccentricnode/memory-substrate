@@ -34,10 +34,11 @@ operating modes. These are checked before any other work in every event handler.
   memory root: no bootstrap, queueing, worker launch, validation, or implicit index creation
   occurs.
 - Worker model resolves from `PI_MEMORY_MODEL`, defaulting to a provider-qualified model
-  that exists in this host's registry and is reachable with the installed pi.dev account
-  (`openai-codex/gpt-5.3-codex-spark` as of 2026-06-08). The build must confirm the
-  default against `pi --list-models` and must never default to a name absent from the
-  registry or known to fail account authentication.
+  reachable with the installed pi.dev account (`openai-codex/gpt-5.3-codex-spark` as of
+  2026-06-08). Offline preflight validates only the provider-qualified form; it must not
+  gate reachability by membership in `pi --list-models`, because that listing can omit
+  authenticated providers. The no-tools worker/reachability subprocess is the source of
+  truth for actual auth/provider reachability and must fail closed on errors.
 - Debounce window and max batch size resolve from `PI_MEMORY_DEBOUNCE_MS` and
   `PI_MEMORY_MAX_BATCH_ITEMS` with sane defaults; both are tunable without code changes.
 
@@ -46,4 +47,5 @@ operating modes. These are checked before any other work in every event handler.
   invocations, and a truthful disabled-status report.
 - With the dry-run knob set, a durable-looking turn produces proposed-change output and a
   zero-diff working tree.
-- Requesting an absent model name surfaces a clear error rather than a silent failure.
+- Requesting an unreachable or malformed model name surfaces a clear error rather than a
+  silent failure.

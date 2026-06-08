@@ -37,6 +37,17 @@ from the existing offline unit tests.
 - When the configured worker model cannot be reached (auth error, unknown provider,
   ambiguous id), the worker run MUST fail closed: no partial write, an explicit audited
   error, and the queued candidates retained for a later attempt — never a silent success.
+- Reachability MUST NOT be determined by membership in `pi --list-models` output. That
+  listing omits authenticated providers that do not enumerate their catalog (the
+  `openai-codex` provider is not listed there, yet `openai-codex/gpt-5.3-codex-spark` is
+  fully reachable), and the listing has been observed to return empty. A preflight that
+  gates on `--list-models` membership wrongly rejects the verified default and makes every
+  worker run fail closed — this is a regression and is prohibited. The preflight MUST
+  validate only that the configured model is provider-qualified in form; actual reachability
+  is established by the real worker subprocess call, whose genuine auth/invocation failure
+  drives the existing fail-closed path. This rule MUST be covered by an offline unit test
+  (no real model call) asserting that a provider-qualified model absent from a stubbed/empty
+  `--list-models` is accepted by the preflight, so the green gate catches any regression.
 
 ### Index hook length (corrects finding 3)
 - When the worker (or the extension applying its draft) writes the `MEMORY.md` pointer, the

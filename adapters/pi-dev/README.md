@@ -22,7 +22,8 @@ The extension:
 
 The worker default model is `openai-codex/gpt-5.3-codex-spark`; set `PI_MEMORY_MODEL`
 to override it with another reachable provider-qualified model. The live worker preflights
-the selected model against `pi --list-models` before sending candidate memory.
+only the provider-qualified `<provider>/<model-id>` shape; the no-tools subprocess call
+establishes actual auth/provider reachability and fails closed if the model cannot run.
 
 ## Local development load
 

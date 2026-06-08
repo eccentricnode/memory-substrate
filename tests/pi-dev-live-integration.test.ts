@@ -492,9 +492,8 @@ liveDescribe("opt-in live pi.dev memory integration", () => {
         expect(records).toHaveLength(1);
         expect(records[0]?.status).toBe("failed");
         expect(records[0]?.retainedQueueCount).toBe(1);
-        expect(String(records[0]?.error ?? "")).toContain(
-          "memory worker model is not present",
-        );
+        expect(String(records[0]?.error ?? "").length).toBeGreaterThan(0);
+        expect(String(records[0]?.error ?? "")).not.toContain("pi --list-models");
         expectNoOutOfRootAuditPaths(run);
       } finally {
         expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));

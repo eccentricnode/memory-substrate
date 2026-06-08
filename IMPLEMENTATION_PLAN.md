@@ -1,119 +1,55 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P0 — pi-dev forced-write extension.
-  - Status: forced-write is offline-green; the live pi.dev harness remains opt-in rather than a completion blocker.
-  - Open hardening to investigate: dry-run proposals do not currently validate proposed output before returning; worker dedupe frontmatter parsing may treat flat top-level `type:` as typed even though the validator rejects flat `type`.
-  - Completed: strict live worker JSON parsing now requires exactly one JSON object with no fences, commentary, or surrounding text.
-  - Completed: delete draft descriptions/reasons now reject markdown before mutation.
-  - Completed: resolved the model-default contract conflict in favor of provider-qualified `openai-codex/gpt-5.3-codex-spark`. Live probes on 2026-06-08 showed bare/Anthropic `claude-haiku-4-5` fails third-party usage auth, while Spark succeeds; specs/docs/default constant/tests now align.
-  - Completed: live worker performs local `pi --list-models` preflight and fails before the worker prompt for bare, ambiguous, or absent `PI_MEMORY_MODEL` values.
-  - Completed: live worker now performs an authenticated no-tools reachability preflight for the selected default or `PI_MEMORY_MODEL` after registry validation and before sending candidate batch content; failures fail closed with retained queue and clear audit/status.
-  - Completed: added the opt-in live pi.dev integration harness required by specs/07 as `tests/pi-dev-live-integration.test.ts` plus `bun run test:pi-live`; it uses disposable memory/session roots, real extension loading, no-tools pi sessions, durable/chatter/disabled/dry-run/bad-model assertions, validator-clean output checks, audit path confinement checks, and default-root before/after snapshots while staying out of the default `bun test` green gate.
-  - Completed: applicator now fits hooks to rendered `MEMORY.md` pointer lines and refuses prefix-only overflow before mutation or dry-run output.
-  - Completed: strengthened dedupe fallback beyond exact-match detection; the applicator now performs conservative keyword-overlap matching and preserves existing topic filename/name/type identity when updating a matched memory.
-  - Completed: enabled mode now treats a missing, directory, or symlinked `MEMORY.md` as unavailable; the applicator refuses implicit index creation in live and dry-run planning; specs document why.
-  - Completed: live worker JSON upserts now require full structured fields: `name`, `title`, `hook`, and `relativePath`.
-  - Completed: delete drafts now require a reason/description, and descriptions containing markdown are refused before mutation.
-  - Completed: project/feedback bodies must include fact-first content plus `**Why:**` and `**How to apply:**` sections.
-  - Completed: worker audit records include `failureClass` and `retainedQueueCount`, including `validation-failed` cases.
-  - Completed: retry after worker recovery processes retained candidates once in order.
-  - Completed: live worker runner uses an env-capable launcher and runs child `pi` with `PI_MEMORY_ENABLED=0` plus isolation flags.
-  - Completed: root-confined applicator remains the write authority and enforces two-step saves: topic file plus `MEMORY.md` pointer.
-  - Completed: worker-supplied `relativePath` basenames are refused unless they match the normalized draft type/name filename convention, with regression coverage.
-  - Completed: status, validate, and flush commands are present.
-  - Completed: specs/04 and specs/05 wording tensions are resolved.
-  - Completed: failed/refused flushes report clear failed/refused status, retain queued candidates, and are covered by lifecycle plus `memory-flush` command regression tests.
-  - Completed: worker canonicalizes new in-root topic paths before indexing.
-  - Completed: worker preflights `MEMORY.md` line and byte caps before mutating files.
-  - Completed: post-write validation failure rolls back affected topic/index files plus empty created directories.
-  - Completed: compaction event structured `summary`/`preparation` content reaches the worker decision text as candidate content.
-  - Completed: queue and worker audit records include bounded payload summaries and item summaries.
-  - Completed: prompt, config, and flush ignore-mode transitions are audited for false-positive debugging.
-  - Completed: ignore mode injects a protective no-cite/no-apply instruction while avoiding memory reads.
-  - Completed: dry-run stdout now prints proposed paths plus rendered topic/index content inline while writing nothing.
-  - Completed: delete/remove drafts are implemented for stale or contradicted memories.
-  - Completed: dry-run delete proposals write nothing.
-  - Completed: live worker JSON delete drafts flow through the safe applicator.
-  - Completed: validator failure rolls back deleted topics and index entries.
-  - Verified: focused worker-write test passed: `bun test tests/worker-write.test.ts`; 14 pass.
-  - Verified: focused tests passed: `bun test tests/worker-write.test.ts tests/live-worker.test.ts`; exit 0, 22 pass.
-  - Verified: targeted tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/config-and-injection.test.ts`; exit 0, 32 pass, 139 assertions across 3 files.
-  - Verified: current increment focused tests passed: `bun test tests/live-worker.test.ts tests/config-and-injection.test.ts tests/lifecycle-and-worker.test.ts tests/worker-write.test.ts`; exit 0, 48 pass, 256 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 66 pass.
-  - Verified: model-default/preflight alignment green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 68 pass, 356 expectations.
-  - Verified: pointer-line cap fix passed `bun test tests/worker-write.test.ts` and the green gate `bunx tsc --noEmit && bun test`; 70 pass.
-  - Verified: authenticated reachability preflight focused tests passed: `bun test tests/live-worker.test.ts tests/lifecycle-and-worker.test.ts`; exit 0, 19 pass, 143 expectations.
-  - Verified: authenticated reachability preflight green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 72 pass, 388 expectations.
-  - Verified: dedupe fallback increment passed focused `bun test tests/worker-write.test.ts`; 20 pass, 106 expectations; green gate `bunx tsc --noEmit && bun test`; 73 pass, 395 expectations.
-  - Verified: focused `bun test tests/config-and-injection.test.ts tests/worker-write.test.ts` passed with 39 pass; green gate `bunx tsc --noEmit && bun test` passed with 80 pass.
-  - Verified: worker draft/audit contracts focused tests passed: `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/live-worker.test.ts tests/validate-command.test.ts`; 59 pass, 336 expectations.
-  - Verified: local typecheck passed: `bunx tsc --noEmit`.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 87 pass, 457 expectations.
-  - Verified: live harness remains opt-in and skipped by the offline green gate: `bunx tsc --noEmit && bun test`; 87 pass, 7 skip, 457 expectations across 94 tests.
-  - Verified: current increment focused tests passed: `bun test tests/live-worker.test.ts tests/worker-write.test.ts`; 38 pass, 210 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 93 pass, 7 skip, 491 expectations.
+- P0 — Write-boundary conflict for `/memory-refresh`.
+  - Status: open; the extension command currently creates compaction proposals outside the resolved memory root, while AGENTS/SPEC safety language says extension writes must stay within the memory root except host config.
+  - Evidence: `adapters/pi-dev/extension/index.ts` exposes `/memory-refresh`, `core.ts` passes an arbitrary output directory to `reference/compactor.ts`, and tests assert external `MEMORY.md` plus `COMPACTION_REPORT.md` proposal output.
+  - Plan: decide and document the allowed boundary for reviewable compaction proposals. If extension writes remain strictly root-confined, remove/disable external `/memory-refresh` writes from the pi-dev extension or require an explicit host-config-owned output root. If external proposals are intentionally allowed, update the safety specs/invariants before relying on that behavior.
 
-- P0 — Config and mode gates.
-  - Status: completed and test-covered.
-  - Completed: enabled/disabled, ignore, dry-run, memory root, model default, debounce, and max batch defaults.
-  - Completed: `PI_MEMORY_ENABLED=0` prevents bootstrap, reads, writes, injection, queueing, worker invocation, and validation.
-  - Completed: host/substrate disabled signals are supported through `RuntimeConfig.disabledReason` and pi-dev adapter host/context/integration disabled checks before memory root resolution.
-  - Completed: ignore mode prevents injection, writes, citations, and application.
-  - Completed: `memory-validate`/core validation now returns ignored/skipped in ignore mode without invoking the validator.
-  - Completed: memory-root resolution now rejects non-directory paths before setting `memoryRoot`.
-  - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts`; exit 0, 14 pass, 46 expectations.
-  - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts tests/validate-command.test.ts`; exit 0, 20 pass, 68 expectations.
-  - Verified: ignore-mode validation increment passed focused `bun test tests/validate-command.test.ts`; 11 pass, 38 expectations; green gate `bunx tsc --noEmit && bun test`; 75 pass, 399 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 54 pass, 262 expectations.
+- P0 — Bounded existing-memory snapshot for the live worker.
+  - Status: open; `specs/03-background-worker.md` permits only a bounded existing-memory snapshot, but `existingMemorySnapshot()` serializes the full index plus every topic frontmatter into the live worker prompt.
+  - Plan: cap snapshot by bytes and topic count, always include enough index/dedupe context to update existing memories, and audit truncation without putting full memory corpus into the worker prompt.
+  - Plan: add a regression with an oversized memory root proving the worker prompt is bounded and still includes deterministic dedupe fields.
 
-- P0 — Memory injection.
-  - Status: completed and test-covered.
-  - Completed: `before_agent_start` reads `MEMORY.md`, ranks index lines by prompt overlap, and injects attributed snippets only.
-  - Completed: disabled and ignore modes inject nothing.
-  - Completed: injection audit records include selected line count, byte length, caps, selected lines, and truncation status.
-  - Bounds: no topic-file bodies; cap at 12 index lines or 4 KB, whichever is smaller.
-  - Verified: focused tests passed via the single test subagent: `bun test tests/config-and-injection.test.ts`; exit 0, 13 pass.
-  - Verified: green gate passed via the single test subagent: `bunx tsc --noEmit && bun test`; exit 0, 56 pass.
+- P1 — Dry-run proposal validation.
+  - Status: open; dry-run planning checks caps and prints proposed topic/index content but returns before invoking the reference validator.
+  - Plan: validate a temporary/proposed memory-root state before dry-run stdout, while leaving the real memory root unchanged.
+  - Plan: add regression coverage for a dry-run proposal that only the validator can reject, such as a broken local markdown link in the proposed topic body.
 
-- P0 — Host safety boundaries.
-  - Status: preserved through the verified implementation.
-  - Preserve: no global install into `~/.pi/agent/extensions/`.
-  - Preserve: child workers must receive `PI_MEMORY_ENABLED=0`; unsupported `pi.exec` env forwarding must keep failing closed.
-  - Preserve: all writes stay confined to the resolved memory root and refuse symlink/out-of-root escapes.
-  - Preserve: default worker model is `openai-codex/gpt-5.3-codex-spark`; `PI_MEMORY_MODEL` overrides but must pass the same preflight.
-  - Completed: specs/03 and specs/06 were clarified to match the implemented no-tools live worker, JSON draft output, and root-confined applicator safety model; one write authority enforces canonical path checks, dry-run, two-step saves, and validation.
-  - Verified: default `~/.memory` root resolution is covered in `tests/config-and-injection.test.ts`.
+- P1 — Frontmatter parser alignment in worker dedupe.
+  - Status: open; worker-local frontmatter parsing treats flat top-level `type:` as typed, while the reference validator rejects flat `type:` outside `metadata.type`.
+  - Plan: reuse/export a shared parser or make the worker parser accept only validator-conformant `metadata.type` for trusted type matching.
+  - Plan: add a worker regression with an existing flat-`type:` topic proving dedupe cannot rely on validator-invalid type metadata.
 
-- P1 — Reference validator.
-  - Status: completed and verified.
-  - Completed: importable `validateMemoryDirectory` API added while preserving CLI behavior.
-  - Completed: validator checks description length, rejects `MEMORY.md` frontmatter, checks filename/name consistency, rejects markdown in descriptions, detects root-escaping/broken links and invalid index lines, reports unresolved `[[name]]` links as info, and treats topic files missing from `MEMORY.md` as two-step-save errors.
-  - Completed: strict canonical em-dash index pointer validation; flat top-level `type` is rejected instead of coerced; topic-body local markdown links are validated for broken/out-of-root targets; index targets are constrained to markdown topic files.
-  - Verified: `bun test tests/reference-validator.test.ts tests/validate-command.test.ts` passed with 16 pass / 60 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 60 pass / 297 expectations.
+- P1 — Worker draft contract strictness.
+  - Status: open; `normalizeDraft()` truncates over-cap descriptions/hooks instead of refusing all malformed worker drafts.
+  - Plan: refuse worker-supplied descriptions that exceed the 200-character cap; keep hook fitting only where the adapter intentionally trims to satisfy the rendered `MEMORY.md` pointer-line cap, or document/refine the contract if hook trimming remains desired.
+  - Plan: add tests for over-cap descriptions and delete reasons so malformed live JSON cannot be normalized into accepted output.
 
-- P1 — pi-dev adapter docs/protocol.
-  - Status: completed and verified.
-  - Completed: `adapters/pi-dev/README.md` and `adapters/pi-dev/memory-protocol.md` document the extension-first forced-write path, bounded injection behavior, command surface, validator/root paths, and canonical index pointer format.
-  - Completed: `AGENTS.md`, specs/01, specs/07, adapter README, tests, and implementation constant now use the provider-qualified Spark default so model guidance is not contradictory.
+- P1 — Delete drafts must target topic memories only.
+  - Status: open; delete drafts reject `MEMORY.md` and out-of-root paths, but any existing `.md` file under the root can be deleted without first proving it is a valid topic memory.
+  - Plan: before delete planning, require valid topic frontmatter and an index pointer for the target, or use the reference validator/topic parser to classify it as an existing topic memory.
+  - Plan: add regressions for deleting an unindexed markdown file and a markdown file with invalid/missing frontmatter.
 
-- P2 — Later extension capabilities.
-  - Status: compactor, pi-dev refresh command, and migrator completed.
-  - Completed: `reference/compactor.ts` adds a CLI/API that reads the memory root, emits proposed `MEMORY.md` plus `COMPACTION_REPORT.md` to an output directory outside the root, and does not mutate durable memory.
-  - Completed: the pi-dev extension exposes `/memory-refresh`, backed by `reference/compactor.ts`, to create a reviewable `MEMORY.md` plus `COMPACTION_REPORT.md` proposal outside the memory root without mutating durable memory.
-  - Verified: compactor covered by `tests/reference-compactor.test.ts`.
-  - Verified: refresh command tests passed: `bun test tests/validate-command.test.ts tests/reference-compactor.test.ts`; 15 pass.
-  - Completed: `reference/migrator.ts` adds a CLI/API that converts historical PAI-shaped memory directories into a reviewable `memory/` proposal plus `MIGRATION_REPORT.md` without mutating the source.
-  - Completed: migrator normalizes flat `type:` frontmatter into `metadata.type`, infers frontmatter for imported markdown files, rebuilds a validator-clean `MEMORY.md`, records ambiguous/non-pointer/broken/duplicate source index lines in the report, and validates the proposed memory root with `reference/validator.ts`.
-  - Completed: `specs/10-pai-migrator-input-schema.md` formalizes the accepted PAI source shapes.
-  - Completed: migrator reports now record the input contract and accepted source shape.
-  - Completed: regression coverage includes migration when the source `MEMORY.md` is missing.
-  - Verified: focused migrator tests passed: `bun test tests/reference-migrator.test.ts`; exit 0, 2 tests, 25 expectations.
-  - Verified: focused migrator tests passed: `bun test tests/reference-migrator.test.ts`; exit 0, 3 pass, 35 expectations.
-  - Verified: migrator processed the historical PAI memory root from `STRATEGY.md` in a temporary proposal; exit 0, 93/93 topic files migrated, proposed index 103 lines, no output-validation failure.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 46 tests, 212 expectations across 8 files.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 88 pass, 7 skip, 467 expectations across 95 tests.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; 90 pass, 7 skip, 479 assertions across 97 tests in 9 files.
-  - Completed: audit schema coverage added for queue/worker records, bounded output tails, validator result fields, and absence of audit bookkeeping from injected prompt text.
-  - Verified: focused lifecycle/worker tests passed: `bun test tests/lifecycle-and-worker.test.ts`; exit 0, 10 pass, 69 expectations.
-  - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 61 pass, 315 expectations across 8 files.
+- P1 — Prompt fallback block length.
+  - Status: open; SPEC §3.5 caps prompt-bakeable write protocol blocks at 80 lines, while `adapters/pi-dev/memory-protocol.md` is currently over that cap.
+  - Plan: compress the fallback protocol without dropping disabled/ignore/dry-run, two-step save, dedupe, exclusions, validation, and read-verification requirements.
+  - Plan: add a simple line-count regression or documented check so future protocol edits do not drift past the cap.
+
+- P2 — Compactor parser alignment.
+  - Status: open; `reference/compactor.ts` also uses a local regex parser that can treat flat top-level `type:` as a trusted compaction group, unlike the validator.
+  - Plan: keep validator findings in the compaction report, but do not classify flat `type:` as a trusted `metadata.type`; group invalid/unknown topics conservatively.
+  - Plan: add a compactor regression for flat `type:` frontmatter showing both the validator finding and expected proposal grouping.
+
+- P2 — Live harness cadence.
+  - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
+  - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
+
+- Completed — Core pi-dev forced-write surface.
+  - Model preflight now validates only provider-qualified shape; `worker.ts` no longer calls `pi --list-models`, reachability comes from the no-tools subprocess, docs/specs/tests were updated, and `bunx tsc --noEmit && bun test` passed with 94 pass and 7 skip.
+  - Event batching/debounce/max-batch/compaction flush are implemented and test-covered.
+  - Disabled mode prevents bootstrap, reads, writes, validation, queueing, and worker launch; ignore mode suppresses injection, writes, citations/application, and validation/refresh/flush behavior as documented.
+  - Live worker launch uses an env-capable subprocess path with `PI_MEMORY_ENABLED=0`, no extensions/context/skills/session/tools, and fails closed when env forwarding cannot be proven.
+  - Applicator is the write authority for upsert/delete drafts, performs root canonicalization, two-step topic/index updates, adapter cap checks, reference validation, rollback on validation failure, and queue retention on failure.
+  - Bounded turn-start injection uses relevant `MEMORY.md` index snippets only, capped at 12 lines or 4 KB, visibly attributed as durable advisory context.
+  - Command surface exists for status, validate, flush, and refresh, subject to the open write-boundary item above.
+  - Reference validator, migrator, and compactor CLIs/APIs exist; migrator intentionally normalizes historical flat `type:` frontmatter under `specs/10`.

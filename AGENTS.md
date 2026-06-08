@@ -16,7 +16,7 @@ capability. Source: `adapters/pi-dev/extension/`. Shared lib: `reference/`. Host
 - Opt-in live pi.dev harness: `bun run test:pi-live` (real pi/model calls; not green gate)
 - Inspect pi extension API: `~/.local/share/mise/installs/node/25.1.0/lib/node_modules/@mariozechner/pi-coding-agent/docs/extensions.md`
 - Working extension template to copy patterns from: `~/Work/active/pai-lite/extensions/blueprint-loader.ts`
-- Available models: `pi --list-models` (default must be provider-qualified; see invariant 6)
+- Inspect model names: `pi --list-models` (advisory only; worker reachability is the no-tools subprocess; see invariant 6)
 
 ## Green-build gate
 A loop is green only when BOTH pass with **exactly 1** test subagent:

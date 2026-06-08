@@ -18,11 +18,6 @@ import {
 } from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
-const MODEL_REGISTRY = `provider      model                       context  max-out  thinking  images
-openai-codex  gpt-5.3-codex-spark         128K     128K     yes       no
-anthropic     claude-haiku-4-5            200K     64K      yes       yes
-oc-sdk-zen    claude-haiku-4-5            200K     64K      yes       yes
-`;
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -110,9 +105,6 @@ function recordingProcess(
   }> = [];
   const process: LivePiProcessExecutor = async (command, args, options) => {
     calls.push({ command, args, options });
-    if (args[0] === "--list-models") {
-      return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
-    }
     if (args.some((arg) => arg.includes("reachability check"))) {
       return { code: 0, stdout: "OK", stderr: "", killed: false };
     }
@@ -149,15 +141,17 @@ describe("live pi memory worker runner", () => {
     const result = await worker.run(request(root));
 
     expect(result.exitCode).toBe(0);
-    expect(process.calls).toHaveLength(3);
-    expect(process.calls[0]?.args).toEqual(["--list-models"]);
-    const reachabilityCall = process.calls[1];
+    expect(process.calls).toHaveLength(2);
+    expect(process.calls.some((call) => call.args[0] === "--list-models")).toBe(
+      false,
+    );
+    const reachabilityCall = process.calls[0];
     expect(reachabilityCall?.args).toContain("--print");
     expect(reachabilityCall?.args).toContain("--no-tools");
     expect(reachabilityCall?.args).toContain(DEFAULT_WORKER_MODEL);
     expect(reachabilityCall?.args.join("\n")).toContain("reachability check");
     expect(reachabilityCall?.args.join("\n")).not.toContain("Candidate batch");
-    const call = process.calls[2];
+    const call = process.calls[1];
     expect(call?.command).toBe("pi");
     expect(call?.options.cwd).toBe(root);
     expect(call?.options.env.PI_MEMORY_ENABLED).toBe("0");
@@ -202,7 +196,7 @@ describe("live pi memory worker runner", () => {
     const result = await worker.run(request(root, true));
 
     expect(result.exitCode).toBe(0);
-    expect(process.calls[2]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
+    expect(process.calls[1]?.options.env.PI_MEMORY_DRY_RUN).toBe("1");
     expect(result.stdout).toContain("proposed paths:");
     expect(result.stdout).toContain("- MEMORY.md");
     expect(result.stdout).toContain("- project_dry-run-memory-write.md");
@@ -351,9 +345,6 @@ ${JSON.stringify({ drafts: [] })}
     }> = [];
     const process: LivePiProcessExecutor = async (command, args, options) => {
       calls.push({ command, args, options });
-      if (args[0] === "--list-models") {
-        return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
-      }
       return {
         code: 7,
         stdout: "",
@@ -365,11 +356,11 @@ ${JSON.stringify({ drafts: [] })}
 
     const result = await worker.run(request(root));
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
     expect(result.exitCode).toBe(7);
     expect(result.stderr).toContain("third-party usage disabled");
-    expect(calls[1]?.args.join("\n")).toContain("reachability check");
-    expect(calls[1]?.args.join("\n")).not.toContain("Candidate batch");
+    expect(calls[0]?.args.join("\n")).toContain("reachability check");
+    expect(calls[0]?.args.join("\n")).not.toContain("Candidate batch");
     expect(topicFiles(root)).toEqual([]);
   });
 
@@ -382,9 +373,6 @@ ${JSON.stringify({ drafts: [] })}
     }> = [];
     const process: LivePiProcessExecutor = async (command, args, options) => {
       calls.push({ command, args, options });
-      if (args[0] === "--list-models") {
-        return { code: 0, stdout: MODEL_REGISTRY, stderr: "", killed: false };
-      }
       if (args.some((arg) => arg.includes("reachability check"))) {
         return { code: 0, stdout: "OK", stderr: "", killed: false };
       }
@@ -394,7 +382,7 @@ ${JSON.stringify({ drafts: [] })}
 
     const result = await worker.run(request(root));
 
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
     expect(result.exitCode).toBe(7);
     expect(result.stderr).toContain("model unavailable");
     expect(topicFiles(root)).toEqual([]);
@@ -409,14 +397,11 @@ ${JSON.stringify({ drafts: [] })}
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("provider-qualified");
-    expect(result.stderr).toContain("anthropic");
-    expect(result.stderr).toContain("oc-sdk-zen");
-    expect(process.calls).toHaveLength(1);
-    expect(process.calls[0]?.args).toEqual(["--list-models"]);
+    expect(process.calls).toHaveLength(0);
     expect(topicFiles(root)).toEqual([]);
   });
 
-  test("absent provider-qualified model fails preflight before the worker prompt", async () => {
+  test("unlisted provider-qualified model reaches no-tools subprocesses", async () => {
     const root = memoryRoot();
     const process = recordingProcess(JSON.stringify({ drafts: [] }));
     const worker = createLivePiMemoryWorkerRunner({ process });
@@ -425,10 +410,15 @@ ${JSON.stringify({ drafts: [] })}
       request(root, false, "openai-codex/missing-model"),
     );
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("not present in pi --list-models");
-    expect(process.calls).toHaveLength(1);
-    expect(process.calls[0]?.args).toEqual(["--list-models"]);
+    expect(result.exitCode).toBe(0);
+    expect(process.calls).toHaveLength(2);
+    expect(process.calls.some((call) => call.args[0] === "--list-models")).toBe(
+      false,
+    );
+    expect(process.calls[0]?.args.join("\n")).toContain("reachability check");
+    expect(process.calls[0]?.args.join("\n")).not.toContain("Candidate batch");
+    expect(process.calls[1]?.args.join("\n")).toContain("Candidate batch");
+    expect(process.calls[1]?.args).toContain("openai-codex/missing-model");
     expect(topicFiles(root)).toEqual([]);
   });
 });
