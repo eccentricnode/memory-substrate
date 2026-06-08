@@ -29,6 +29,10 @@ operating modes. These are checked before any other work in every event handler.
 ### Configuration resolution
 - Memory root resolves deterministically from host config (SPEC §6.1.1), defaulting to the
   substrate-neutral canonical root; never assume a hard-coded absolute path.
+- In enabled mode, a resolved memory root is available only when `MEMORY.md` already exists
+  at its root as a regular file. A missing, directory, or symlinked index is an unavailable
+  memory root: no bootstrap, queueing, worker launch, validation, or implicit index creation
+  occurs.
 - Worker model resolves from `PI_MEMORY_MODEL`, defaulting to a provider-qualified model
   that exists in this host's registry and is reachable with the installed pi.dev account
   (`openai-codex/gpt-5.3-codex-spark` as of 2026-06-08). The build must confirm the

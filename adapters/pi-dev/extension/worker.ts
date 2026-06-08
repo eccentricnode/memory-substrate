@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -624,9 +625,13 @@ function renderDryRunProposal(
   proposedPaths: Set<string>,
 ): string {
   const indexPath = safePath(request.memoryRoot, "MEMORY.md");
-  let proposedIndex = existsSync(indexPath)
-    ? readFileSync(indexPath, "utf8")
-    : "# Memory\n";
+  if (!existsSync(indexPath)) {
+    throw new Error(`memory index does not exist: ${indexPath}`);
+  }
+  if (!lstatSync(indexPath).isFile()) {
+    throw new Error(`memory index is not a file: ${indexPath}`);
+  }
+  let proposedIndex = readFileSync(indexPath, "utf8");
   for (const item of changePlan) {
     proposedIndex =
       item.action === "upsert"
@@ -1127,9 +1132,13 @@ export async function applyMemoryWriteDrafts(
 
   const snapshots = new Map<string, FileSnapshot>();
   const indexPath = safePath(request.memoryRoot, "MEMORY.md");
-  let nextIndex = existsSync(indexPath)
-    ? readFileSync(indexPath, "utf8")
-    : "# Memory\n";
+  if (!existsSync(indexPath)) {
+    throw new Error(`memory index does not exist: ${indexPath}`);
+  }
+  if (!lstatSync(indexPath).isFile()) {
+    throw new Error(`memory index is not a file: ${indexPath}`);
+  }
+  let nextIndex = readFileSync(indexPath, "utf8");
   nextIndex = applyPlanToIndex(nextIndex, changePlan);
   assertIndexWithinAdapterCaps(nextIndex);
 

@@ -1,6 +1,6 @@
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 export const DEFAULT_MEMORY_ROOT = "~/.memory";
 export const DEFAULT_WORKER_MODEL = "openai-codex/gpt-5.3-codex-spark";
@@ -66,6 +66,13 @@ export function resolveMemoryRoot(
     }
     if (!statSync(absolute).isDirectory()) {
       return { ok: false, error: `memory root is not a directory: ${absolute}` };
+    }
+    const indexPath = join(absolute, "MEMORY.md");
+    if (!existsSync(indexPath)) {
+      return { ok: false, error: `memory index does not exist: ${indexPath}` };
+    }
+    if (!lstatSync(indexPath).isFile()) {
+      return { ok: false, error: `memory index is not a regular file: ${indexPath}` };
     }
     return { ok: true, path: realpathSync(absolute) };
   } catch (error) {

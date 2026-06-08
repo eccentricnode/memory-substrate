@@ -28,6 +28,9 @@ purpose of the substrate.
 ### Relevance and size
 - A first-pass relevance check scans the index (`MEMORY.md`) for overlap with salient terms
   in the prompt; a better ranker may replace it later without changing this contract.
+- If `MEMORY.md` is missing or is not a regular file, enabled-mode configuration treats the
+  memory root as unavailable before injection is attempted. The injection path therefore
+  never silently substitutes an empty index.
 - Injected content is bounded to a small snippet (a slice of the index, not topic-file
   bodies) and is marked as durable memory so the operator can see what was added.
 - Injection respects ignore mode (SPEC §4.4) and disabled mode (SPEC §4.5): in either, nothing

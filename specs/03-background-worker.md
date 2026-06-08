@@ -42,6 +42,9 @@ two-step saves, and validation have one write authority. Default-deny is the gov
   one of the four SPEC types or produce no write; it must never coerce an unknown type.
 - The extension applicator performs the two-step save: topic file then `MEMORY.md` pointer;
   a write that updates one without the other is an error (SPEC §3.3).
+- The applicator requires an existing `MEMORY.md` file before planning dry-run or live
+  mutations. It must not synthesize the index because SPEC §2.1 makes that file part of the
+  memory root contract and bootstrap surface.
 - For feedback and project types the body leads with the fact, then why and how-to-apply
   (SPEC §2.3). The index pointer stays a single line (SPEC §2.5).
 - Writes are confined to the resolved memory root; the worker never mutates files directly,

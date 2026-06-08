@@ -269,6 +269,39 @@ Use Bun commands for project automation.
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("missing MEMORY.md is refused before live write planning", async () => {
+    const root = tempDir();
+    const worker = createDeterministicMemoryWorkerRunner();
+
+    const result = await worker.run(
+      request(root, "The durable decision is to refuse implicit index creation."),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("memory index does not exist");
+    expect(topicFiles(root)).toEqual([]);
+    expect(existsSync(join(root, "MEMORY.md"))).toBe(false);
+  });
+
+  test("missing MEMORY.md is refused before dry-run proposals", async () => {
+    const root = tempDir();
+    const worker = createDeterministicMemoryWorkerRunner();
+
+    const result = await worker.run(
+      request(
+        root,
+        "The durable decision is to refuse dry-run implicit index creation.",
+        true,
+      ),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("memory index does not exist");
+    expect(result.stdout).toBeUndefined();
+    expect(topicFiles(root)).toEqual([]);
+    expect(existsSync(join(root, "MEMORY.md"))).toBe(false);
+  });
+
   test("delete draft removes stale topic file and index pointer", async () => {
     const root = memoryRoot();
     writeExistingMemory(root);

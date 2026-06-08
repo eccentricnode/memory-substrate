@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -70,6 +76,7 @@ describe("pi-dev runtime config", () => {
   test("resolves explicit relative roots against the pi cwd", () => {
     const cwd = tempDir();
     mkdirSync(join(cwd, ".memory"));
+    writeFileSync(join(cwd, ".memory", "MEMORY.md"), "# Memory\n");
 
     const config = resolveRuntimeConfig({
       cwd,
@@ -86,6 +93,7 @@ describe("pi-dev runtime config", () => {
     const homeDir = tempDir();
     const defaultRoot = join(homeDir, ".memory");
     mkdirSync(defaultRoot);
+    writeFileSync(join(defaultRoot, "MEMORY.md"), "# Memory\n");
 
     const config = resolveRuntimeConfig({
       cwd: tempDir(),
@@ -109,6 +117,52 @@ describe("pi-dev runtime config", () => {
     expect(config.error).toContain("memory root does not exist");
   });
 
+  test("requires MEMORY.md before enabled mode can use a root", () => {
+    const root = tempDir();
+
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      homeDir: tempDir(),
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.memoryRoot).toBeUndefined();
+    expect(config.error).toContain("memory index does not exist");
+  });
+
+  test("rejects a directory where MEMORY.md should be", () => {
+    const root = tempDir();
+    mkdirSync(join(root, "MEMORY.md"));
+
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      homeDir: tempDir(),
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.memoryRoot).toBeUndefined();
+    expect(config.error).toContain("memory index is not a regular file");
+  });
+
+  test("rejects a symlinked MEMORY.md before injection can read outside the root", () => {
+    const root = tempDir();
+    const outside = tempDir();
+    writeFileSync(join(outside, "MEMORY.md"), "# Memory\n");
+    symlinkSync(join(outside, "MEMORY.md"), join(root, "MEMORY.md"));
+
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      homeDir: tempDir(),
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.memoryRoot).toBeUndefined();
+    expect(config.error).toContain("memory index is not a regular file");
+  });
+
   test("rejects a regular file as the memory root", () => {
     const cwd = tempDir();
     const fileRoot = join(cwd, "memory-file");
@@ -127,6 +181,7 @@ describe("pi-dev runtime config", () => {
 
   test("honors dry-run, ignore, model, debounce, and batch knobs", () => {
     const root = tempDir();
+    writeFileSync(join(root, "MEMORY.md"), "# Memory\n");
     const config = resolveRuntimeConfig({
       cwd: tempDir(),
       env: {
