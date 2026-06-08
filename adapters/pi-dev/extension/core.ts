@@ -96,7 +96,7 @@ export interface WorkerAuditRecord {
 }
 
 export interface ValidateMemoryResult {
-  status: "passed" | "failed" | "disabled" | "unavailable";
+  status: "passed" | "failed" | "disabled" | "ignored" | "unavailable";
   memoryRoot?: string;
   exitCode?: number;
   error?: string;
@@ -388,6 +388,13 @@ export class MemoryExtensionCore {
       return {
         status: "disabled",
         error: "memory validation suppressed: memory is disabled",
+        outputTail: "",
+      };
+    }
+    if (this.ignoreForSession) {
+      return {
+        status: "ignored",
+        error: "memory validation suppressed: memory is ignored",
         outputTail: "",
       };
     }

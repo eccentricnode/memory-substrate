@@ -119,6 +119,23 @@ describe("pi-dev memory command surface", () => {
     expect(calls).toBe(0);
   });
 
+  test("core validation is suppressed in ignore mode without invoking the runner", async () => {
+    let calls = 0;
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: memoryRoot(), PI_MEMORY_IGNORE: "1" },
+      validator: async () => {
+        calls += 1;
+        return { exitCode: 0 };
+      },
+    });
+
+    const result = await core.validateMemory();
+
+    expect(result.status).toBe("ignored");
+    expect(calls).toBe(0);
+  });
+
   test("core validation reports reference validator failures from the resolved root", async () => {
     const root = memoryRoot();
     const core = new MemoryExtensionCore({
@@ -168,6 +185,22 @@ describe("pi-dev memory command surface", () => {
     const notification = ctx.ui.notifications.at(-1);
     expect(notification?.level).toBe("info");
     expect(notification?.message).toBe("memory validation skipped: disabled");
+  });
+
+  test("memory-validate command obeys ignore mode", async () => {
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    process.env.PI_MEMORY_IGNORE = "1";
+    delete process.env.PI_MEMORY_ENABLED;
+    const { handlers, commands } = fakePi();
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await commands.get("memory-validate")?.handler("", ctx);
+
+    const notification = ctx.ui.notifications.at(-1);
+    expect(notification?.level).toBe("info");
+    expect(notification?.message).toBe("memory validation skipped: ignored");
   });
 
   test("memory-flush command drains queued candidates without a real model", async () => {

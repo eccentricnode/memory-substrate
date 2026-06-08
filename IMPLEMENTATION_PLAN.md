@@ -45,9 +45,11 @@
   - Completed: `PI_MEMORY_ENABLED=0` prevents bootstrap, reads, writes, injection, queueing, worker invocation, and validation.
   - Completed: host/substrate disabled signals are supported through `RuntimeConfig.disabledReason` and pi-dev adapter host/context/integration disabled checks before memory root resolution.
   - Completed: ignore mode prevents injection, writes, citations, and application.
+  - Completed: `memory-validate`/core validation now returns ignored/skipped in ignore mode without invoking the validator.
   - Completed: memory-root resolution now rejects non-directory paths before setting `memoryRoot`.
   - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts`; exit 0, 14 pass, 46 expectations.
   - Verified: focused tests passed: `bun test tests/config-and-injection.test.ts tests/validate-command.test.ts`; exit 0, 20 pass, 68 expectations.
+  - Verified: ignore-mode validation increment passed focused `bun test tests/validate-command.test.ts`; 11 pass, 38 expectations; green gate `bunx tsc --noEmit && bun test`; 75 pass, 399 expectations.
   - Verified: green gate passed via exactly one test subagent: `bunx tsc --noEmit && bun test`; exit 0, 54 pass, 262 expectations.
 
 - P0 — Memory injection.
