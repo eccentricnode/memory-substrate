@@ -141,6 +141,34 @@ const LIVE_WORKER_REACHABILITY_PROMPT =
 const VALIDATOR_PATH = fileURLToPath(
   new URL("../../../reference/validator.ts", import.meta.url),
 );
+const DEDUPE_STOP_WORDS = new Set([
+  "about",
+  "agent",
+  "apply",
+  "that",
+  "this",
+  "when",
+  "with",
+  "from",
+  "into",
+  "for",
+  "all",
+  "and",
+  "the",
+  "one",
+  "two",
+  "memory",
+  "project",
+  "reference",
+  "feedback",
+  "user",
+  "must",
+  "should",
+  "shall",
+  "use",
+  "uses",
+  "using",
+]);
 
 interface PiModelRegistryEntry {
   provider: string;
@@ -334,18 +362,79 @@ function parseTopicFrontmatter(content: string): {
   return { name, description, type };
 }
 
+function normalizeKeyword(value: string): string {
+  if (value.length > 4 && value.endsWith("ies")) {
+    return `${value.slice(0, -3)}y`;
+  }
+  if (value.length > 4 && value.endsWith("es")) return value.slice(0, -2);
+  if (value.length > 3 && value.endsWith("s")) return value.slice(0, -1);
+  return value;
+}
+
+function descriptionKeywords(value: string): Set<string> {
+  const keywords = new Set<string>();
+  for (const match of value.toLowerCase().matchAll(/[a-z0-9]+/g)) {
+    const keyword = normalizeKeyword(match[0] ?? "");
+    if (keyword.length < 3 || DEDUPE_STOP_WORDS.has(keyword)) continue;
+    keywords.add(keyword);
+  }
+  return keywords;
+}
+
+function keywordMatchScore(
+  draftKeywords: Set<string>,
+  existingKeywords: Set<string>,
+): number {
+  if (draftKeywords.size === 0 || existingKeywords.size === 0) return 0;
+  let overlap = 0;
+  for (const keyword of draftKeywords) {
+    if (existingKeywords.has(keyword)) overlap++;
+  }
+  if (overlap < 2) return 0;
+  return overlap / Math.min(draftKeywords.size, existingKeywords.size);
+}
+
+interface ExistingTopicMatch {
+  path: string;
+  name?: string;
+  type?: MemoryType;
+  score: number;
+}
+
 function findExistingTopic(
   root: string,
   draft: RequiredUpsertMemoryDraft,
-): string | undefined {
+): ExistingTopicMatch | undefined {
   const desiredName = draft.name;
   const desiredDescription = draft.description.toLowerCase();
+  const desiredKeywords = descriptionKeywords(draft.description);
+  let keywordMatch: ExistingTopicMatch | undefined;
   for (const path of topicFiles(root)) {
     const frontmatter = parseTopicFrontmatter(readFileSync(path, "utf8"));
-    if (frontmatter.name === desiredName) return path;
-    if (frontmatter.description?.toLowerCase() === desiredDescription) return path;
+    const type = VALID_TYPES.has(frontmatter.type as MemoryType)
+      ? (frontmatter.type as MemoryType)
+      : undefined;
+    const sameType = type === undefined || type === draft.type;
+    if (!sameType) continue;
+    if (frontmatter.name === desiredName) {
+      return { path, name: frontmatter.name, type, score: 1 };
+    }
+    if (frontmatter.description?.toLowerCase() === desiredDescription) {
+      return { path, name: frontmatter.name, type, score: 1 };
+    }
+
+    const existingText = [frontmatter.name, frontmatter.description]
+      .filter(Boolean)
+      .join(" ");
+    const score = keywordMatchScore(
+      desiredKeywords,
+      descriptionKeywords(existingText),
+    );
+    if (score >= 0.5 && (!keywordMatch || score > keywordMatch.score)) {
+      keywordMatch = { path, name: frontmatter.name, type, score };
+    }
   }
-  return undefined;
+  return keywordMatch;
 }
 
 interface RequiredUpsertMemoryDraft {
@@ -1001,12 +1090,26 @@ export async function applyMemoryWriteDrafts(
         `memory relativePath filename must be ${expectedFilename}: ${draft.relativePath}`,
       );
     }
-    const existingPath = findExistingTopic(request.memoryRoot, draft);
-    const topicRelativePath = existingPath
-      ? relativeTopicPath(request.memoryRoot, existingPath)
+    const existingTopic = findExistingTopic(request.memoryRoot, draft);
+    const topicRelativePath = existingTopic
+      ? relativeTopicPath(request.memoryRoot, existingTopic.path)
       : relativeTopicPath(request.memoryRoot, preferredPath);
-    const fittedDraft = fitDraftHookToPointerLine(topicRelativePath, draft);
-    const topicPath = existingPath
+    const targetDraft = existingTopic
+      ? {
+          ...draft,
+          name: existingTopic.name ?? draft.name,
+          type: existingTopic.type ?? draft.type,
+          relativePath: topicRelativePath,
+        }
+      : draft;
+    const expectedTargetFilename = `${targetDraft.type}_${targetDraft.name}.md`;
+    if (basename(topicRelativePath) !== expectedTargetFilename) {
+      throw new Error(
+        `matched memory filename must be ${expectedTargetFilename}: ${topicRelativePath}`,
+      );
+    }
+    const fittedDraft = fitDraftHookToPointerLine(topicRelativePath, targetDraft);
+    const topicPath = existingTopic
       ? safePath(request.memoryRoot, topicRelativePath)
       : preferredPath;
     proposedPaths.add(topicPath);

@@ -196,6 +196,48 @@ describe("deterministic memory worker write path", () => {
     expect(indexEntries).toHaveLength(1);
   });
 
+  test("description keyword match updates an existing memory instead of duplicating", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "project_bun-commands.md"),
+      `---
+name: bun-commands
+description: Use Bun commands for project automation
+metadata:
+  type: project
+---
+
+Use Bun commands for project automation.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun commands](project_bun-commands.md) — Use Bun commands for project automation\n",
+    );
+    const worker = createDeterministicMemoryWorkerRunner();
+
+    const result = await worker.run(
+      request(
+        root,
+        "The durable decision is to use Bun for all build and test commands.",
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(topicFiles(root)).toEqual(["project_bun-commands.md"]);
+    const topic = readFileSync(join(root, "project_bun-commands.md"), "utf8");
+    expect(topic).toContain("name: bun-commands");
+    expect(topic).toContain("use Bun for all build and test commands");
+    const indexEntries = readFileSync(join(root, "MEMORY.md"), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("- ["));
+    expect(indexEntries).toHaveLength(1);
+    expect(indexEntries[0]).toContain("](project_bun-commands.md) — use Bun");
+    expect(result.changedPaths?.some((path) =>
+      path.endsWith("project_bun-commands.md"),
+    )).toBe(true);
+  });
+
   test("dry-run reports proposed paths and writes nothing", async () => {
     const root = memoryRoot();
     const before = readFileSync(join(root, "MEMORY.md"), "utf8");
