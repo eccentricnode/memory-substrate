@@ -227,6 +227,71 @@ describe("live pi memory worker runner", () => {
     expect(prompt).not.toContain("SPEC section 3");
   });
 
+  test("live worker prompt sends bounded durable candidate text only", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({ process });
+    const bulkyToolOutput = `TOOL_SENTINEL ${"x".repeat(10_000)}`;
+    const durableUserText =
+      "The durable decision is to keep candidate extraction bounded.";
+
+    const result = await worker.run({
+      ...request(root),
+      items: [
+        {
+          id: "item-tool-filter",
+          trigger: "agent_end",
+          createdAt: 1,
+          messageCount: 3,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: durableUserText }],
+            },
+            {
+              role: "assistant",
+              content: "Confirmed and will apply that decision later.",
+            },
+            {
+              role: "tool",
+              content: bulkyToolOutput,
+              result: bulkyToolOutput,
+            },
+          ],
+          payload: { preview: "AUDIT_PAYLOAD_SENTINEL" },
+        },
+      ],
+    });
+
+    expect(result.exitCode).toBe(0);
+    const prompt = process.calls[1]?.args.at(-1) ?? "";
+    const candidateText =
+      prompt.match(/Candidate batch:\n([\s\S]+?)\n$/)?.[1] ?? "";
+    const candidateBatch = JSON.parse(candidateText) as Array<{
+      id: string;
+      trigger: string;
+      createdAt: number;
+      messageCount: number;
+      text: string;
+      truncated: boolean;
+    }>;
+
+    expect(candidateBatch).toEqual([
+      {
+        id: "item-tool-filter",
+        trigger: "agent_end",
+        createdAt: 1,
+        messageCount: 3,
+        text: `${durableUserText} Confirmed and will apply that decision later.`,
+        truncated: false,
+      },
+    ]);
+    expect(prompt).toContain(durableUserText);
+    expect(prompt).not.toContain("TOOL_SENTINEL");
+    expect(prompt).not.toContain("AUDIT_PAYLOAD_SENTINEL");
+    expect(prompt.length).toBeLessThan(15_000);
+  });
+
   test("bounds existing-memory snapshot while preserving relevant dedupe fields", async () => {
     const root = memoryRoot();
     writeOversizedMemoryRoot(root);

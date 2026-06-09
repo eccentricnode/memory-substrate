@@ -1,13 +1,29 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
+- P1 — Dry-run scratch writes must stay root-confined.
+  - Status: open; dry-run validation currently copies/applies proposed memory under `os.tmpdir()` outside the resolved memory root, which may violate the strict write-confinement invariant despite cleanup.
+  - Plan: move dry-run scratch/proposal validation under a hidden in-root workspace or redesign dry-run validation to avoid filesystem writes outside `memoryRoot`; add regression coverage that no outside-root scratch path is created.
+
+- P1 — Worker runner injection is a trust boundary.
+  - Status: open; custom `MemoryWorkerRunner.supportsEnv` is runner-declared, and injected runners can bypass applicator/write confinement unless they use `worker.ts`.
+  - Plan: narrow the injected runner contract so untrusted runners cannot perform direct memory writes, and make env-recursion support and applicator-only writes mechanically enforced or test-stub-only.
+
+- P1 — Research subprocess root-only guarantees are prompt/tool mediated.
+  - Status: open; research citations are not validated as existing relative topic files under `memoryRoot`, and read-only/root-only enforcement relies on pi tool allowlist plus prompt instructions rather than a sandbox.
+  - Plan: validate returned citations against canonical in-root topic files before surfacing them, and add a mechanical root-only/read-only boundary or explicit fail-closed behavior when it cannot be enforced.
+
 - P1 — Prompt fallback block length.
   - Status: open; `adapters/pi-dev/memory-protocol.md` is 87 lines, exceeding SPEC §3.5's <=80-line prompt-bakeable cap.
   - Plan: compress the fallback protocol without dropping disabled/ignore/dry-run, two-step save, dedupe, exclusions, validation, and read-verification requirements.
   - Plan: add a simple line-count regression or documented check so future protocol edits do not drift past the cap.
 
-- P1 — Candidate batch prompt payload may be too broad.
-  - Status: open; spec review found `agent_end` messages are passed wholesale into worker prompts even though ordinary tool results are out of scope and audit output must stay bounded.
-  - Plan: define and enforce a bounded candidate-message extraction policy for worker prompts, preserving durable user/assistant turn content while excluding bulky or tool-only payloads.
+- P2 — Model/config validation should fail before flush/research.
+  - Status: open; malformed model values currently surface during flush or research preflight rather than config/status discovery.
+  - Plan: validate configured worker/research model shape during config/status paths and expose actionable status without launching subprocess preflight.
+
+- P2 — Ignore mode needs an operator clear path.
+  - Status: open; prompt-triggered ignore mode has no explicit operator command/path to clear it within the session.
+  - Plan: define and implement a clear/resume command or prompt phrase, with audit output proving when memory remains ignored versus re-enabled.
 
 - P2 — Exact per-write two-step ordering.
   - Status: open; spec review noted the applicator writes all topic files in a batch and then writes the index once. Rollback protects validation failures, but a process interruption between those steps can still leave incomplete topic-only writes.
@@ -35,6 +51,7 @@
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - Candidate batch prompt payload is now bounded before it reaches the live worker prompt: worker prompts serialize bounded durable candidate text instead of raw request items; tool/system/bulky payloads and audit payloads are excluded from the live prompt; deterministic fallback also ignores tool-only payloads. Focused `bun test tests/live-worker.test.ts tests/worker-write.test.ts` passed with 48 pass, 0 fail, 274 expect() calls; full green gate via one test subagent `bunx tsc --noEmit && bun test` passed with 113 pass, 8 skip, 0 fail, 612 expect() calls, 121 tests across 10 files.
   - Live worker prompt now carries the full write protocol: explicit durable triggers, exclusions, dedupe/update/stale correction, and two-step save protocol. Regression coverage lives in `tests/live-worker.test.ts`; `bun test tests/live-worker.test.ts` passed with 14 pass, 0 fail, and `bunx tsc --noEmit && bun test` passed with 111 pass, 7 skip, 0 fail.
   - P0 memory research sub-agent is complete: shared `researchMemory` orchestrator, `/memory-research` command, `memory_research` tool registration, recursion guard env, read-only tool allowlist, model preflight, mocked subprocess tests for found/not-found/disabled/ignore/model errors, and pi-dev README coverage for `/memory-research`, `memory_research`, `PI_MEMORY_RESEARCH_MODEL`, and the live harness. `tests/pi-dev-live-integration.test.ts` now has an opt-in `/memory-research` live test that seeds disposable memory, invokes the command, expects citation/output, and asserts no worker queue or memory mutation. Docs make the read-side mediator operationally discoverable; the opt-in live test verifies the read-only recursion-guarded subprocess path without making live calls part of the green gate. Latest verification: focused `bun test tests/memory-research.test.ts tests/pi-dev-live-integration.test.ts` passed with 6 pass, 8 skip, 0 fail; full green gate via one test subagent `bunx tsc --noEmit && bun test` passed with 111 pass, 8 skip, 0 fail, 119 tests.
   - Worker dedupe now only trusts validator-conformant nested `metadata.type`, so flat top-level `type:` frontmatter cannot masquerade as typed topic metadata during snapshot/dedupe decisions. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.

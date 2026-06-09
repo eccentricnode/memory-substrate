@@ -101,6 +101,35 @@ describe("deterministic memory worker write path", () => {
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
   });
 
+  test("tool-only payloads do not become deterministic memory candidates", async () => {
+    const root = memoryRoot();
+    const worker = createDeterministicMemoryWorkerRunner();
+
+    const result = await worker.run({
+      ...request(root, "unused"),
+      items: [
+        {
+          id: "item-tool-only",
+          trigger: "agent_end",
+          createdAt: 1,
+          messageCount: 1,
+          messages: [
+            {
+              role: "tool",
+              content:
+                "The durable decision is to never let tool output become memory.",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("no memory written");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
   test("explicit durable decision writes topic file, index pointer, and validator result", async () => {
     const root = memoryRoot();
     const state = {

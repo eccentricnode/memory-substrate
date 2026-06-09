@@ -142,6 +142,9 @@ const INDEX_BYTE_CAP = 25 * 1024;
 const EXISTING_MEMORY_SNAPSHOT_BYTE_CAP = 8 * 1024;
 const EXISTING_MEMORY_SNAPSHOT_TOPIC_CAP = 40;
 const SNAPSHOT_FIELD_CAP = 240;
+const CANDIDATE_TEXT_FIELD_CAP = 2_000;
+const CANDIDATE_ITEM_TEXT_CAP = 6_000;
+const CANDIDATE_BATCH_TEXT_CAP = 12_000;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
 const LIVE_WORKER_REACHABILITY_PROMPT =
   "Memory worker model reachability check. Reply exactly: OK";
@@ -259,31 +262,114 @@ function requiredOneLineField(
   return line;
 }
 
-function textFromMessage(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(textFromMessage).filter(Boolean).join("\n");
+function boundedCandidateText(value: string, cap = CANDIDATE_TEXT_FIELD_CAP): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= cap) return normalized;
+  return normalized.slice(0, cap - 1).trimEnd();
+}
+
+function contentText(value: unknown, depth = 0): string {
+  if (depth > 3) return "";
+  if (typeof value === "string") return boundedCandidateText(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return boundedCandidateText(item);
+        if (!item || typeof item !== "object") return "";
+        const record = item as Record<string, unknown>;
+        const itemType = typeof record.type === "string" ? record.type : "";
+        if (/tool|image|audio|file/i.test(itemType)) return "";
+        return contentText(record.text ?? record.content, depth + 1);
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
   if (!value || typeof value !== "object") return "";
   const record = value as Record<string, unknown>;
+  return contentText(
+    record.text ??
+      record.content ??
+      record.message ??
+      record.summary ??
+      record.preparation,
+    depth + 1,
+  );
+}
+
+function durableTextFromMessage(value: unknown): string {
+  if (typeof value === "string") return boundedCandidateText(value);
+  if (Array.isArray(value)) {
+    return value.map(durableTextFromMessage).filter(Boolean).join("\n");
+  }
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const role = typeof record.role === "string" ? record.role.toLowerCase() : undefined;
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : undefined;
+  if (
+    role === "tool" ||
+    role === "system" ||
+    type === "tool_result" ||
+    type === "tool_use" ||
+    type === "tool"
+  ) {
+    return "";
+  }
+  if (role === "user" || role === "assistant") {
+    return contentText(record.content ?? record.text ?? record.message);
+  }
   return [
     record.text,
     record.content,
     record.message,
-    record.messages,
-    record.prompt,
     record.summary,
     record.preparation,
   ]
-    .map(textFromMessage)
+    .map((item) => contentText(item))
     .filter(Boolean)
     .join("\n");
 }
 
 function batchText(request: MemoryWorkerRequest): string {
-  return request.items
-    .flatMap((item) => item.messages ?? [])
-    .map(textFromMessage)
+  const text = request.items
+    .map((item) => candidateTextForItem(item))
     .filter(Boolean)
     .join("\n");
+  return boundedCandidateText(text, CANDIDATE_BATCH_TEXT_CAP);
+}
+
+interface WorkerPromptCandidateItem {
+  id: string;
+  trigger: BatchTrigger;
+  createdAt: number;
+  messageCount: number;
+  text: string;
+  truncated: boolean;
+}
+
+function candidateTextForItem(item: MemoryBatchItem): string {
+  const text = (item.messages ?? [])
+    .map(durableTextFromMessage)
+    .filter(Boolean)
+    .join("\n");
+  return boundedCandidateText(text, CANDIDATE_ITEM_TEXT_CAP);
+}
+
+function workerPromptCandidateBatch(items: MemoryBatchItem[]): WorkerPromptCandidateItem[] {
+  return items.map((item) => {
+    const rawText = (item.messages ?? [])
+      .map(durableTextFromMessage)
+      .filter(Boolean)
+      .join("\n");
+    const text = boundedCandidateText(rawText, CANDIDATE_ITEM_TEXT_CAP);
+    return {
+      id: item.id,
+      trigger: item.trigger,
+      createdAt: item.createdAt,
+      messageCount: item.messageCount,
+      text,
+      truncated: rawText.replace(/\s+/g, " ").trim().length > text.length,
+    };
+  });
 }
 
 function classifyMemory(text: string): MemoryType {
@@ -1166,6 +1252,7 @@ function existingMemorySnapshot(root: string, candidateText: string): string {
 
 function liveWorkerPrompt(request: MemoryWorkerRequest): string {
   const candidateText = batchText(request);
+  const candidateBatch = workerPromptCandidateBatch(request.items);
   return `You are the memory-substrate pi.dev background worker.
 
 Decide whether the candidate batch contains durable memory. Default to no write.
@@ -1213,7 +1300,7 @@ Existing memory snapshot:
 ${existingMemorySnapshot(request.memoryRoot, candidateText)}
 
 Candidate batch:
-${JSON.stringify(request.items, null, 2)}
+${JSON.stringify(candidateBatch, null, 2)}
 `;
 }
 
