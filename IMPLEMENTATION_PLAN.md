@@ -21,15 +21,12 @@
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
 
-- P2 — Successful no-write flush visibility.
-  - Status: open; spec/search review found `/memory-flush` still reports processed candidate count without distinguishing a successful no-write decision from a write-changing success.
-  - Plan: decide whether the worker/core result should carry accepted write/delete counts or a no-write flag, then update command output and regressions without weakening retained-failure statuses.
-
 - P2 — Worker timeout and in-flight queue edge coverage.
   - Status: open; specs require worker timeouts to be failed retained runs and items arriving during an in-flight run to wait for the next run, but current tests do not directly pin those edges.
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - `/memory-flush` now distinguishes successful no-write runs from write-changing success through the core `memoryChanges` result, with command regressions pinning both user-visible outcomes so future status/output changes cannot collapse them back together. Latest verification: `bun test tests/validate-command.test.ts` passed with 17 pass, 0 fail; `bunx tsc --noEmit && bun test` passed with type-check passed, 131 pass, 9 skip, 0 fail.
   - P1 worker runner injection trust boundary is resolved: built-in deterministic/live runners are applicator-owned, while unmarked injected runners run behind a memory-root snapshot/restore guard that fails and retains the queue if they mutate the root directly. `tests/lifecycle-and-worker.test.ts` matters because it proves even a `supportsEnv` injected runner cannot bypass the applicator; direct writes are rolled back.
   - Provider-qualified worker/research model validation now lives in runtime config/status paths before root discovery, flush, or research subprocess launch, so malformed model config fails early without touching memory roots or spawning workers. Focused tests matter because they pin config injection, lifecycle/flush, research, and validate-command behavior around that fail-closed boundary; focused `bun test tests/config-and-injection.test.ts tests/lifecycle-and-worker.test.ts tests/memory-research.test.ts tests/validate-command.test.ts` passed with 63 pass, 0 fail, and full gate `bunx tsc --noEmit && bun test` passed with 128 pass, 9 skip, 0 fail across 11 files.
   - P1 research subprocess root-only guarantees are resolved: research now launches with `--no-builtin-tools` plus explicit `research-tools.ts` exposing only `memory_index`, `memory_read`, `memory_grep`, and `memory_list`. Those tools canonicalize relative paths under `PI_MEMORY_ROOT`, reject absolute/out-of-root paths, and keep research read-only/root-confined. Focused `bun test tests/memory-research.test.ts` passed with 8 pass, 0 fail, and full gate `bunx tsc --noEmit && bun test` passed with 130 pass, 9 skip, 0 fail across 11 files.

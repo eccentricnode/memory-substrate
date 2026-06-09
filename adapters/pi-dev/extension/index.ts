@@ -201,7 +201,13 @@ function flushMessage(result: FlushMemoryResult): string {
 
   const suffix =
     result.remainingItems > 0 ? `, ${result.remainingItems} still queued` : "";
-  return `memory flush complete: processed ${result.processedItems} queued memory candidate(s)${suffix}`;
+  if (result.memoryChanges === 0) {
+    return `memory flush complete: processed ${result.processedItems} queued memory candidate(s), no memory changes accepted${suffix}`;
+  }
+  return [
+    `memory flush complete: processed ${result.processedItems} queued memory candidate(s)`,
+    `${result.memoryChanges} memory path change(s) accepted or proposed${suffix}`,
+  ].join("; ");
 }
 
 function refreshLevel(

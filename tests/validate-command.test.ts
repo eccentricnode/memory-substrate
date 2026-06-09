@@ -239,7 +239,33 @@ describe("pi-dev memory command surface", () => {
     const notification = ctx.ui.notifications.at(-1);
     expect(notification?.level).toBe("success");
     expect(notification?.message).toContain("processed 1 queued memory candidate");
+    expect(notification?.message).toContain("no memory changes accepted");
     expect(ctx.ui.statuses.at(-1)?.value).toContain(root);
+  });
+
+  test("memory-flush command distinguishes write-changing success", async () => {
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    delete process.env.PI_MEMORY_ENABLED;
+    const worker = recordingWorker({
+      exitCode: 0,
+      stdout: "wrote memory",
+      changedPaths: [join(root, "MEMORY.md"), join(root, "project_flush.md")],
+    });
+    const { handlers, commands } = fakePi({ worker });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_end")?.({
+      messages: ["The durable decision is to test a changing flush."],
+    }, ctx);
+    await commands.get("memory-flush")?.handler("", ctx);
+
+    const notification = ctx.ui.notifications.at(-1);
+    expect(notification?.level).toBe("success");
+    expect(notification?.message).toContain("processed 1 queued memory candidate");
+    expect(notification?.message).toContain("2 memory path change(s)");
+    expect(notification?.message).not.toContain("no memory changes accepted");
   });
 
   test("memory-flush command reports worker failures and retains queued candidates", async () => {

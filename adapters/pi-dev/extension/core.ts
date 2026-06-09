@@ -153,6 +153,7 @@ export interface FlushMemoryResult {
     | "validation-failed"
     | "refused";
   processedItems: number;
+  memoryChanges: number;
   remainingItems: number;
   error?: string;
 }
@@ -219,8 +220,13 @@ const REACTIVE_ATTRIBUTION =
 interface WorkerBatchOutcome {
   status: WorkerRunStatus;
   itemCount: number;
+  memoryChanges: number;
   error?: string;
   failureClass?: WorkerAuditRecord["failureClass"];
+}
+
+function countMemoryChanges(result: MemoryWorkerResult): number {
+  return new Set([...(result.changedPaths ?? []), ...(result.proposedPaths ?? [])]).size;
 }
 
 type MemoryRootSnapshotEntry =
@@ -652,6 +658,7 @@ export class MemoryExtensionCore {
       return {
         status: "disabled",
         processedItems: 0,
+        memoryChanges: 0,
         remainingItems: this.queue.length,
       };
     }
@@ -660,6 +667,7 @@ export class MemoryExtensionCore {
       return {
         status: "ignored",
         processedItems: 0,
+        memoryChanges: 0,
         remainingItems: this.queue.length,
       };
     }
@@ -667,6 +675,7 @@ export class MemoryExtensionCore {
       return {
         status: "unavailable",
         processedItems: 0,
+        memoryChanges: 0,
         remainingItems: this.queue.length,
         error: this.config.error ?? "memory root unavailable",
       };
@@ -678,6 +687,7 @@ export class MemoryExtensionCore {
     }
 
     let processedItems = 0;
+    let memoryChanges = 0;
     let stoppedBy: WorkerBatchOutcome | undefined;
     while (this.queue.length > 0 && !this.processing) {
       const outcome = await this.processNextBatch(reason);
@@ -687,6 +697,7 @@ export class MemoryExtensionCore {
         break;
       }
       processedItems += outcome.itemCount;
+      memoryChanges += outcome.memoryChanges;
       if (!options.drain && reason !== "session_before_compact") break;
       this.clearTimer();
     }
@@ -700,6 +711,7 @@ export class MemoryExtensionCore {
               ? "validation-failed"
               : "failed",
         processedItems,
+        memoryChanges,
         remainingItems: this.queue.length,
         error: stoppedBy.error,
       };
@@ -708,6 +720,7 @@ export class MemoryExtensionCore {
     return {
       status: processedItems > 0 ? "flushed" : "idle",
       processedItems,
+      memoryChanges,
       remainingItems: this.queue.length,
     };
   }
@@ -913,7 +926,12 @@ export class MemoryExtensionCore {
         error,
         outputTail: "",
       });
-      return { status: "refused", itemCount: items.length, error };
+      return {
+        status: "refused",
+        itemCount: items.length,
+        memoryChanges: 0,
+        error,
+      };
     }
 
     const request: MemoryWorkerRequest = {
@@ -952,6 +970,7 @@ export class MemoryExtensionCore {
           return {
             status: "failed",
             itemCount: items.length,
+            memoryChanges: 0,
             error,
             failureClass: "failed",
           };
@@ -967,13 +986,18 @@ export class MemoryExtensionCore {
           : this.queue.length,
       );
       if (result.exitCode === 0) {
-        return { status: "completed", itemCount: items.length };
+        return {
+          status: "completed",
+          itemCount: items.length,
+          memoryChanges: countMemoryChanges(result),
+        };
       }
       const failedValidation =
         result.validator !== undefined && result.validator.exitCode !== 0;
       return {
         status: "failed",
         itemCount: items.length,
+        memoryChanges: 0,
         error: result.stderr || "worker failed",
         failureClass: failedValidation ? "validation-failed" : "failed",
       };
@@ -994,7 +1018,12 @@ export class MemoryExtensionCore {
         error: message,
         outputTail: "",
       });
-      return { status: "failed", itemCount: items.length, error: message };
+      return {
+        status: "failed",
+        itemCount: items.length,
+        memoryChanges: 0,
+        error: message,
+      };
     }
   }
 
