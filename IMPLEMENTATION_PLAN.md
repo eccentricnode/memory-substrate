@@ -10,11 +10,6 @@
   - Plan: compress the fallback protocol without dropping disabled/ignore/dry-run, two-step save, dedupe, exclusions, validation, and read-verification requirements.
   - Plan: add a simple line-count regression or documented check so future protocol edits do not drift past the cap.
 
-- P1 — Live worker prompt must carry the full write protocol.
-  - Status: open; `liveWorkerPrompt` in `adapters/pi-dev/extension/worker.ts` still says "SPEC section 3" instead of carrying the explicit trigger, exclusion, dedupe, stale-correction, and two-step rules.
-  - Why it matters: the live worker is the forced-write decision surface; assuming it already knows the spec weakens recall of explicit remembers, corrections, confirmed approaches, preferences, project context, and external pointers.
-  - Plan: expand the worker prompt with the compact §3.1-§3.4 protocol while keeping the prompt bounded, and add regression coverage that the prompt contains the durable-trigger/exclusion cues.
-
 - P1 — Candidate batch prompt payload may be too broad.
   - Status: open; spec review found `agent_end` messages are passed wholesale into worker prompts even though ordinary tool results are out of scope and audit output must stay bounded.
   - Plan: define and enforce a bounded candidate-message extraction policy for worker prompts, preserving durable user/assistant turn content while excluding bulky or tool-only payloads.
@@ -45,6 +40,7 @@
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - Live worker prompt now carries the full write protocol: explicit durable triggers, exclusions, dedupe/update/stale correction, and two-step save protocol. Regression coverage lives in `tests/live-worker.test.ts`; `bun test tests/live-worker.test.ts` passed with 14 pass, 0 fail, and `bunx tsc --noEmit && bun test` passed with 111 pass, 7 skip, 0 fail.
   - P0 memory research first implementation slice is complete: shared `researchMemory` orchestrator, `/memory-research` command, `memory_research` tool registration, recursion guard env, read-only tool allowlist, model preflight, and mocked subprocess tests for found/not-found/disabled/ignore/model errors. Full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 110 pass, 7 skip, 0 fail, 117 tests across 10 files.
   - Worker dedupe now only trusts validator-conformant nested `metadata.type`, so flat top-level `type:` frontmatter cannot masquerade as typed topic metadata during snapshot/dedupe decisions. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.
   - Delete drafts now require valid indexed topic memories, preventing deletion of unindexed markdown files or files with invalid/missing topic frontmatter under the memory root. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.

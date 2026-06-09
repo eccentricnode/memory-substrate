@@ -202,6 +202,31 @@ describe("live pi memory worker runner", () => {
     );
   });
 
+  test("live worker prompt carries the concrete write protocol", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({ process });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(0);
+    const prompt = process.calls[1]?.args.at(-1) ?? "";
+    expect(prompt).toContain("explicit user requests to remember");
+    expect(prompt).toContain("user corrections of agent behavior");
+    expect(prompt).toContain("confirmation that a non-obvious approach worked");
+    expect(prompt).toContain("non-derivable project context");
+    expect(prompt).toContain("external systems or stable pointers");
+    expect(prompt).toContain("Never save progress chatter");
+    expect(prompt).toContain("code patterns, conventions, file paths or facts derivable");
+    expect(prompt).toContain("content already present in always-loaded host files");
+    expect(prompt).toContain("updates it instead of creating a duplicate");
+    expect(prompt).toContain("stale or contradicted");
+    expect(prompt).toContain("1. write or edit the topic file under the memory root");
+    expect(prompt).toContain("2. add or update the MEMORY.md pointer");
+    expect(prompt).toContain("compare the candidate against snapshot name");
+    expect(prompt).not.toContain("SPEC section 3");
+  });
+
   test("bounds existing-memory snapshot while preserving relevant dedupe fields", async () => {
     const root = memoryRoot();
     writeOversizedMemoryRoot(root);
