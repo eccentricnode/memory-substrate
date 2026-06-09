@@ -48,13 +48,20 @@ The background worker output is a bounded structured proposal stream.
   reason.
 - The target must already exist as a topic memory under the resolved memory root.
 - Delete proposals never target the index itself.
+- The matching `MEMORY.md` pointer must be derived by the applicator from the canonical
+  target, not trusted from worker prose.
 
 ### Applicator authority
 - The worker never writes files directly in the live forced-write path.
 - The extension applicator canonicalizes every target, enforces dry-run, performs the
   two-step save or delete, and runs the reference validator.
+- Dry-run stops before mutation and reports the applicator's canonical proposed paths/actions.
+- Delete mutation order is the inverse of create: remove the `MEMORY.md` pointer first, then
+  remove the topic file, then validate. This favors a transient hidden orphan over a transient
+  broken index route, but the operation is still atomic.
 - If any proposal in a batch is refused or validation fails, the applied result is atomic:
-  no partial topic or index mutation remains.
+  no partial topic or index mutation remains. If the applicator cannot restore both the
+  original topic and original index on failure, it must refuse before mutation.
 
 ## Verification signals
 - A no-memory response produces no file changes and a successful audit record.
@@ -63,5 +70,7 @@ The background worker output is a bounded structured proposal stream.
   pointer.
 - A delete proposal removes the topic file and matching index pointer without touching
   unrelated memories.
+- A failed delete after either step restores the original topic file and index pointer, so
+  tests prove both ordering and rollback instead of only the happy path.
 - A proposal with a path/type/slug mismatch, an unknown action, or an out-of-root target is
   refused before mutation.

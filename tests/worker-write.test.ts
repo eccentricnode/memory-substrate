@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore } from "../adapters/pi-dev/extension/core.ts";
 import {
@@ -370,6 +370,38 @@ Historical flat frontmatter should not steer worker dedupe.
     expect(
       [result.validator?.stdout, result.validator?.stderr].filter(Boolean).join("\n"),
     ).toContain("broken link: missing.md");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("dry-run validation scratch space stays hidden under the memory root", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    let validationRoot = "";
+    const worker = createDeterministicMemoryWorkerRunner({
+      validate: async (memoryRoot) => {
+        validationRoot = memoryRoot;
+        expect(existsSync(join(memoryRoot, "MEMORY.md"))).toBe(true);
+        expect(topicFiles(memoryRoot)).toEqual([
+          "project_use-bun-for-all-build-and-test-commands.md",
+        ]);
+        return { exitCode: 0, stdout: "ok" };
+      },
+    });
+
+    const result = await worker.run(
+      request(
+        root,
+        "The durable decision is to use Bun for all build and test commands.",
+        true,
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(validationRoot).toStartWith(
+      `${resolve(root)}${sep}.memory-substrate${sep}dry-run${sep}`,
+    );
+    expect(existsSync(join(root, ".memory-substrate", "dry-run"))).toBe(false);
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });

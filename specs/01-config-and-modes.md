@@ -23,8 +23,10 @@ operating modes. These are checked before any other work in every event handler.
   cited, compared against, or applied, and no new memories are written.
 
 ### Dry-run mode
-- A dry-run knob (`PI_MEMORY_DRY_RUN=1`) makes the worker print its proposed changes and
-  changed paths but write nothing to disk.
+- A dry-run knob (`PI_MEMORY_DRY_RUN=1`) makes the applicator plan accepted worker drafts,
+  report the applicator-canonicalized proposed paths/actions, and write nothing to disk.
+  Raw worker target strings are not the dry-run contract because the applicator is the write
+  authority that enforces root confinement and caps.
 
 ### Configuration resolution
 - Memory root resolves deterministically from host config (SPEC §6.1), defaulting to the
@@ -45,7 +47,7 @@ operating modes. These are checked before any other work in every event handler.
 ## Verification signals
 - With the disable knob set, a full session produces zero reads, zero writes, zero worker
   invocations, and a truthful disabled-status report.
-- With the dry-run knob set, a durable-looking turn produces proposed-change output and a
-  zero-diff working tree.
+- With the dry-run knob set, a durable-looking turn produces applicator-proposed path output
+  and a zero-diff working tree.
 - Requesting an unreachable or malformed model name surfaces a clear error rather than a
   silent failure.

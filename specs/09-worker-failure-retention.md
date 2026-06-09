@@ -39,8 +39,9 @@ Failed worker runs retain candidate batches for explicit recovery.
 
 ### Operator visibility
 - Each failed or refused run records an audit entry with the trigger reason, batch size,
-  selected model, dry-run state, failure class, retained queue count, changed or proposed
-  paths, validator result when available, and a bounded output tail.
+  selected model, dry-run state, failure class, retained queue count, applicator-proposed
+  paths in dry-run or changed paths in live mode, validator result when available, and a
+  bounded output tail.
 - User-facing status or command output distinguishes disabled, ignored, unavailable,
   refused, failed, and successful no-write outcomes.
 - Failure output is bounded so extension state does not become a hidden transcript dump.

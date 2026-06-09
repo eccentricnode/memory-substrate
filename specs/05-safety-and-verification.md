@@ -6,9 +6,11 @@ development, the tests in this spec must exist and fail before implementation be
 
 ## Safety boundaries (hard constraints)
 - **Write confinement.** No write, by the extension or its worker, lands outside the resolved
-  memory root or the host's own config (SPEC §6.3). For memory writes, the resolved memory
-  root is the allowlisted boundary: write targets are canonicalized and accepted only when
-  they remain inside that root. An attempted out-of-root write fails closed.
+  memory root except bounded host-managed config/extension state needed for adapter
+  configuration, queue/run audit, and diagnostics (SPEC §6.3). For memory writes, the
+  resolved memory root is the allowlisted boundary: write targets are canonicalized and
+  accepted only when they remain inside that root. An attempted out-of-root memory write
+  fails closed.
 - **Recursion guard.** The worker subprocess runs with the extension disabled in its
   environment so it cannot trigger itself into an unbounded fork. Before relying on env-based
   disabling, confirm the host's subprocess call forwards environment; if it does not, the
@@ -17,7 +19,7 @@ development, the tests in this spec must exist and fail before implementation be
 - **No global install during development.** The extension is exercised project-local or via
   the test harness; it is never copied into the global pi extensions directory during build,
   so it cannot leak into unrelated pi sessions.
-- **Dry-run** produces proposed output and a zero-diff tree.
+- **Dry-run** produces applicator-proposed paths/actions and a zero-diff tree.
 
 ## Verification strategy
 
@@ -35,6 +37,10 @@ development, the tests in this spec must exist and fail before implementation be
   plus one index pointer; repeat fact ⇒ update not duplicate.
 - **Spec conformance of writes:** frontmatter valid, two-step save complete, index line stays
   one line — verified by invoking `reference/validator.ts` against the produced memory root.
+- **Link validation:** unresolved `[[name]]` wiki links are non-blocking TODO/info findings;
+  broken local markdown links and broken index pointers are errors that block live writes.
+  These tests matter because implementations must not reject intentional wiki placeholders
+  or ship routable markdown that points nowhere.
 - **Confinement:** out-of-root write attempt is refused.
 - **Recursion guard:** worker environment carries the disable flag; if env forwarding is
   unavailable the worker is not spawned.
@@ -46,5 +52,6 @@ development, the tests in this spec must exist and fail before implementation be
 
 ## Verification signals
 - `bunx tsc --noEmit && bun test` is green with a single test runner.
-- The reference validator reports zero errors against memory directories produced in tests.
+- The reference validator reports zero errors against memory directories produced in tests;
+  non-blocking info findings are allowed only where the spec names them.
 - No test mutates anything outside its temporary memory root.

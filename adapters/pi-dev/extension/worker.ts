@@ -13,7 +13,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeEnv } from "./config.ts";
@@ -146,6 +145,7 @@ const CANDIDATE_TEXT_FIELD_CAP = 2_000;
 const CANDIDATE_ITEM_TEXT_CAP = 6_000;
 const CANDIDATE_BATCH_TEXT_CAP = 12_000;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
+const DRY_RUN_SCRATCH_DIR = ".memory-substrate/dry-run";
 const LIVE_WORKER_REACHABILITY_PROMPT =
   "Memory worker model reachability check. Reply exactly: OK";
 const VALIDATOR_PATH = fileURLToPath(
@@ -882,23 +882,41 @@ function applyPlanToRoot(root: string, changePlan: MemoryChangePlan[]): void {
   writeFileSync(indexPath, nextIndex);
 }
 
+function copyMemoryRootToScratch(memoryRoot: string, tempRoot: string): void {
+  mkdirSync(tempRoot, { recursive: true });
+  for (const entry of readdirSync(memoryRoot)) {
+    if (entry.startsWith(".")) continue;
+    const source = safePath(memoryRoot, entry);
+    const destination = join(tempRoot, entry);
+    cpSync(source, destination, {
+      recursive: true,
+      dereference: false,
+      errorOnExist: true,
+    });
+  }
+}
+
 async function validateDryRunProposal(
   request: MemoryWorkerRequest,
   changePlan: MemoryChangePlan[],
   validate: (memoryRoot: string) => Promise<MemoryValidationResult>,
 ): Promise<MemoryValidationResult> {
-  const tempParent = mkdtempSync(join(tmpdir(), "memory-substrate-dry-run-"));
+  const scratchRoot = safePath(request.memoryRoot, DRY_RUN_SCRATCH_DIR);
+  mkdirSync(scratchRoot, { recursive: true });
+  const tempParent = mkdtempSync(join(scratchRoot, "run-"));
   const tempRoot = join(tempParent, "root");
   try {
-    cpSync(request.memoryRoot, tempRoot, {
-      recursive: true,
-      dereference: false,
-      errorOnExist: true,
-    });
+    copyMemoryRootToScratch(request.memoryRoot, tempRoot);
     applyPlanToRoot(tempRoot, changePlan);
     return await validate(tempRoot);
   } finally {
     rmSync(tempParent, { force: true, recursive: true });
+    try {
+      rmdirSync(scratchRoot);
+    } catch {
+      // Another dry-run may still be using this workspace.
+    }
+    cleanupEmptyDirectories(request.memoryRoot, [scratchRoot]);
   }
 }
 

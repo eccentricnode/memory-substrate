@@ -42,6 +42,12 @@ Each spec describes **one topic of concern**. Test: write the purpose in **one s
 
 A different team on a different stack must be able to reimplement from the spec alone.
 
+Host-binding specs are the exception when concrete host details are the contract. They may
+name environment knobs, host event/source surfaces, commands, source paths, runtime versions,
+or live-observed provider behavior when those details are necessary to bind or verify a
+specific adapter. Keep those details narrow and observable; use them to define required
+behavior and tests, not to prescribe incidental implementation structure.
+
 ## Files that are not topic specs
 
 These don't follow the topic-spec discipline:

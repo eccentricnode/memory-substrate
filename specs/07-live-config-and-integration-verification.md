@@ -16,7 +16,7 @@ from the existing offline unit tests.
 - The extension's default configuration works out-of-the-box on this host without manual model
   surgery.
 - A model that cannot be reached fails loudly and is audited, never silently no-ops a write.
-- The team can re-run the live behavior (the four smoke cases) on demand as a real
+- The team can re-run the live behavior smoke cases on demand as a real
   integration check, without that check polluting any real memory directory or slowing the
   offline green gate.
 
@@ -52,14 +52,15 @@ from the existing offline unit tests.
 ### Index hook length (corrects finding 3)
 - When the worker (or the extension applying its draft) writes the `MEMORY.md` pointer, the
   one-line hook MUST be held at or under the SPEC §2.5 cap (150 characters). The worker's
-  instructions MUST direct it to produce a hook within the cap, and the applier SHOULD reject
-  or trim a pointer that exceeds it rather than emit a validator warning.
+  instructions MUST direct it to produce a hook within the cap, and the pi.dev applicator
+  MUST refuse an over-cap pointer before mutation rather than trim silently or defer to a
+  validator warning.
 
 ### Integration verification layer (the rigorous testing)
 - A dedicated integration verification harness MUST exist, separate from the offline unit
   suite. It drives a REAL pi.dev session with the extension loaded against a disposable
   sandbox memory root, and asserts on both inputs and outputs.
-- It MUST run, at minimum, the four smoke cases as explicit pass/fail assertions:
+- It MUST run, at minimum, these smoke cases as explicit pass/fail assertions:
   1. Load — the extension initializes in a real session with no error.
   2. Durable turn — a turn carrying a durable fact produces exactly one spec-conformant topic
      file plus one in-cap index pointer, in the sandbox, and the reference validator reports
@@ -67,6 +68,8 @@ from the existing offline unit tests.
   3. Chatter turn — a trivial turn produces zero topic files.
   4. Disabled mode (`PI_MEMORY_ENABLED=0`) — a durable turn produces zero writes and no worker
      invocation.
+  5. Dry-run durable turn (`PI_MEMORY_DRY_RUN=1`) — a durable turn may invoke the worker and
+     applicator, but produces zero file mutations and reports applicator-proposed paths/actions.
 - Input assertions: the harness MUST confirm the worker's resolved model is provider-qualified
   and reachable (the run does not fail with an auth/provider error), and that mode flags
   (`PI_MEMORY_ENABLED`, `PI_MEMORY_IGNORE`, `PI_MEMORY_DRY_RUN`) take effect.
@@ -88,5 +91,5 @@ from the existing offline unit tests.
   no write.
 - A produced index pointer never exceeds 150 characters; the validator reports zero warnings
   of that class.
-- The integration harness, run opt-in, passes all four cases and asserts zero out-of-root
+- The integration harness, run opt-in, passes all smoke cases and asserts zero out-of-root
   writes; the offline `bun test` green gate still runs without any real model call.

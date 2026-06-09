@@ -25,6 +25,8 @@ two-step saves, and validation have one write authority. Default-deny is the gov
   `memory-protocol.md` remains the prompt/manual fallback for sessions without that path.
 - The worker runs with the memory extension disabled in its own environment (recursion guard,
   per AGENTS.md invariant 3).
+- In dry-run mode, the worker still returns drafts, but the applicator is what canonicalizes
+  those drafts into proposed paths/actions for output and audit.
 
 ### Decision discipline
 - Default output is "no memory written." The worker proposes writes only when the batch contains
@@ -53,7 +55,9 @@ two-step saves, and validation have one write authority. Default-deny is the gov
 
 ### Audit
 - Each run records reason, batch reference, model, exit status, and a short output tail to
-  extension state that stays out of the LLM context.
+  host-managed extension state that stays out of the LLM context. This state is audit/debug
+  configuration, not durable memory, and is the allowed host-state exception to memory-root
+  write confinement.
 
 ## Verification signals
 - A batch of pure progress chatter yields a no-write result and a clean working tree.

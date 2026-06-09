@@ -48,7 +48,9 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 
 ### Audit records
 - Each queued batch and worker run records structured audit data in pi.dev extension state outside the LLM context.
-- Audit data includes trigger reason, batch item count, selected model, dry-run flag, exit status, proposed or changed paths, validator result, error summary, and a short output tail.
+- pi.dev extension state used for this audit data is allowed host-managed state/config, not
+  durable memory, and must stay bounded.
+- Audit data includes trigger reason, batch item count, selected model, dry-run flag, exit status, applicator-proposed paths in dry-run or changed paths in live mode, validator result, error summary, and a short output tail.
 - Audit records must not include entire conversation transcripts unless needed for a failed-run diagnostic, and even then they are bounded.
 
 ### Validator command surface
@@ -56,9 +58,10 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 - Disabled mode suppresses validation because disabled mode means no memory I/O.
 - Invalid frontmatter types are validator errors for this adapter. Validator errors fail the
   operation; general v0.1 warnings remain advisory.
-- Adapter-specific stricter caps are allowed by SPEC §2.5. When the pi.dev adapter declares
-  an index cap, exceeding it is a pi.dev write-time refusal even if the substrate-neutral
-  v0.1 validator would otherwise classify that cap family as a warning.
+- Adapter-specific stricter caps are allowed by SPEC §2.5. For pi.dev forced writes, the
+  active index pointer-line cap and any adapter-declared total index cap are write-time hard
+  refusals even if the substrate-neutral v0.1 validator would otherwise classify that cap
+  family as a warning. Validator warnings are not permission to apply a live pi.dev write.
 
 ## Verification signals
 - Root precedence tests prove explicit configuration wins and default resolution is stable.
@@ -68,4 +71,6 @@ The pi.dev adapter binds memory-substrate behavior to pi.dev-specific runtime su
 - Injection tests verify the 12-line / 4 KB cap and visible attribution.
 - Audit tests verify queue and run records are retrievable from extension state but absent from LLM messages.
 - Validate command tests invoke the reference validator with the resolved root and obey disabled mode.
-- Forced-write tests prove adapter-specific index cap violations are refused before topic files are written.
+- Forced-write tests prove adapter-specific index cap violations are refused before topic
+  files are written, because cap enforcement must happen at the applicator boundary before
+  user-visible memory is mutated.
