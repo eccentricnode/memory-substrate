@@ -45,6 +45,21 @@ function memoryRoot(): string {
   return root;
 }
 
+function writeTopic(root: string, path: string, name: string, description: string): void {
+  writeFileSync(
+    join(root, path),
+    `---
+name: ${name}
+description: ${description}
+metadata:
+  type: project
+---
+${description}
+`,
+  );
+  writeFileSync(join(root, "MEMORY.md"), `# Memory\n\n- [${description}](${path}) — ${description}\n`);
+}
+
 function recordingProcess(
   stdout: string,
 ): MemoryResearchProcessExecutor & {
@@ -68,6 +83,7 @@ function recordingProcess(
 describe("memory research sub-agent", () => {
   test("spawns a recursion-guarded read-only pi sub-agent and parses citations", async () => {
     const root = memoryRoot();
+    writeTopic(root, "project_bun.md", "bun", "Bun is the project build command");
     const researchProcess = recordingProcess(
       JSON.stringify({
         found: true,
@@ -111,6 +127,32 @@ describe("memory research sub-agent", () => {
     expect(call?.args.join("\n")).not.toContain("write,edit");
     expect(call?.args).toContain(DEFAULT_WORKER_MODEL);
     expect(call?.args.at(-1)).toContain("Do not write, edit, delete, move, or create files.");
+  });
+
+  test("fails closed when research returns citations outside indexed topic files", async () => {
+    const root = memoryRoot();
+    writeTopic(root, "project_bun.md", "bun", "Bun is the project build command");
+    const researchProcess = recordingProcess(
+      JSON.stringify({
+        found: true,
+        answer: "Bun is the project build command.",
+        citations: ["../outside.md"],
+      }),
+    );
+
+    const result = await researchMemory(
+      {
+        question: "What build command should be used?",
+        cwd: tempDir(),
+        env: { PI_MEMORY_ROOT: root },
+      },
+      { process: researchProcess },
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.found).toBe(false);
+    expect(result.citations).toEqual([]);
+    expect(result.error).toContain("invalid memory research citation");
   });
 
   test("honors not-found responses without inventing citations", async () => {
@@ -246,6 +288,7 @@ function fakePi(options: Parameters<typeof memorySubstrateExtension>[1] = {}) {
 describe("memory research extension surfaces", () => {
   test("memory-research command reports synthesis with citations", async () => {
     const root = memoryRoot();
+    writeTopic(root, "project_bun.md", "bun", "Bun is required");
     process.env.PI_MEMORY_ROOT = root;
     const researchProcess = recordingProcess(
       JSON.stringify({
@@ -268,6 +311,7 @@ describe("memory research extension surfaces", () => {
 
   test("memory_research tool returns only synthesis and structured details", async () => {
     const root = memoryRoot();
+    writeTopic(root, "project_worker.md", "worker", "Use the root-confined worker");
     process.env.PI_MEMORY_ROOT = root;
     const researchProcess = recordingProcess(
       JSON.stringify({

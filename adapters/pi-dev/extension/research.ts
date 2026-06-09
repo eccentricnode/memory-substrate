@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { resolveRuntimeConfig, type RuntimeEnv } from "./config.ts";
 import {
   RECURSION_GUARD_ENV,
@@ -207,6 +209,57 @@ function parseResearchPayload(stdout: string): {
   };
 }
 
+function isInsideRoot(root: string, target: string): boolean {
+  const resolvedRoot = resolve(root);
+  const resolvedTarget = resolve(target);
+  return (
+    resolvedTarget === resolvedRoot ||
+    resolvedTarget.startsWith(`${resolvedRoot}${sep}`)
+  );
+}
+
+function indexedTopicPaths(memoryRoot: string): Set<string> {
+  const index = readFileSync(resolve(memoryRoot, "MEMORY.md"), "utf8");
+  const paths = new Set<string>();
+  for (const line of index.split(/\r?\n/)) {
+    const match = line.match(/^- \[[^\]]+\]\(([^)]+\.md)\)/);
+    const target = match?.[1]?.trim();
+    if (target && target !== "MEMORY.md") paths.add(target);
+  }
+  return paths;
+}
+
+function validateResearchCitations(memoryRoot: string, citations: string[]): string[] {
+  const indexed = indexedTopicPaths(memoryRoot);
+  const realRoot = realpathSync(memoryRoot);
+  const valid: string[] = [];
+  for (const citation of citations) {
+    if (
+      citation === "" ||
+      citation.includes("\0") ||
+      citation.includes("\n") ||
+      citation.includes("\r") ||
+      isAbsolute(citation) ||
+      citation === "MEMORY.md" ||
+      !citation.endsWith(".md") ||
+      !indexed.has(citation)
+    ) {
+      throw new Error(`invalid memory research citation: ${citation}`);
+    }
+    const target = resolve(memoryRoot, citation);
+    if (!isInsideRoot(memoryRoot, target) || !existsSync(target)) {
+      throw new Error(`invalid memory research citation: ${citation}`);
+    }
+    const realTarget = realpathSync(target);
+    const rel = relative(realRoot, realTarget);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel) || !statSync(realTarget).isFile()) {
+      throw new Error(`invalid memory research citation: ${citation}`);
+    }
+    valid.push(citation);
+  }
+  return valid;
+}
+
 export async function researchMemory(
   request: MemoryResearchRequest,
   options: MemoryResearchOptions = {},
@@ -309,11 +362,15 @@ export async function researchMemory(
 
   try {
     const parsed = parseResearchPayload(result.stdout);
+    const citations = validateResearchCitations(config.memoryRoot, parsed.citations);
+    if (parsed.found && citations.length === 0) {
+      throw new Error("memory research found result missing valid citations");
+    }
     return {
       status: parsed.found ? "found" : "not-found",
       found: parsed.found,
       answer: parsed.answer,
-      citations: parsed.citations,
+      citations,
       memoryRoot: config.memoryRoot,
     };
   } catch (error) {
