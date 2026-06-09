@@ -5,6 +5,15 @@ question to a **sub-agent** that researches `PI_MEMORY_ROOT` in its *own* contex
 and returns only a synthesis — so the main session is never polluted with `rg`
 output and file reads.
 
+## Context-offload contract (layer-wide)
+
+Every mediator in this layer — this one, plus harvest / learning-distill /
+context-search as they land — MUST do its heavy work in a **spawned sub-context**
+and return only a synthesis (+ citations) to the caller. The bulk (search
+transcripts, file bodies, raw model output) stays in the child and is dropped.
+This is the contract for the whole memory-mediator layer, not a per-tool option —
+it is *why* these live as sub-agents and not as main-loop work.
+
 ## Scope
 
 - In scope: an agent-callable **tool** and a slash **command** that spawn a
