@@ -2,10 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { resolveRuntimeConfig, type RuntimeEnv } from "./config.ts";
-import {
-  RECURSION_GUARD_ENV,
-  validateProviderQualifiedModel,
-} from "./worker.ts";
+import { RECURSION_GUARD_ENV } from "./worker.ts";
 
 export interface MemoryResearchRequest {
   question: string;
@@ -296,6 +293,15 @@ export async function researchMemory(
       citations: [],
     };
   }
+  if (config.error?.includes("model must be provider-qualified")) {
+    return {
+      status: "failed",
+      found: false,
+      answer: "memory research failed before searching memory",
+      citations: [],
+      error: config.error.replace("memory worker model", "memory research model"),
+    };
+  }
   if (!config.memoryRoot || config.error) {
     return {
       status: "unavailable",
@@ -306,20 +312,7 @@ export async function researchMemory(
     };
   }
 
-  const model =
-    request.env?.PI_MEMORY_RESEARCH_MODEL?.trim() ||
-    request.env?.PI_MEMORY_MODEL?.trim() ||
-    config.model;
-  const modelError = validateProviderQualifiedModel(model);
-  if (modelError) {
-    return {
-      status: "failed",
-      found: false,
-      answer: "memory research failed before searching memory",
-      citations: [],
-      error: modelError.replace("memory worker model", "memory research model"),
-    };
-  }
+  const model = config.researchModel;
 
   const command = options.command ?? "pi";
   const timeoutMs = options.timeoutMs ?? RESEARCH_TIMEOUT_MS;

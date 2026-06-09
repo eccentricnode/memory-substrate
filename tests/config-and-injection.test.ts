@@ -222,8 +222,39 @@ describe("pi-dev runtime config", () => {
     expect(config.ignore).toBe(true);
     expect(config.reactive).toBe(true);
     expect(config.model).toBe("openai-codex/gpt-5.3-codex-spark");
+    expect(config.researchModel).toBe("openai-codex/gpt-5.3-codex-spark");
     expect(config.debounceMs).toBe(25);
     expect(config.maxBatchItems).toBe(3);
+  });
+
+  test("rejects malformed worker and research models before root discovery", () => {
+    const missingRoot = join(tempDir(), "missing-memory");
+
+    const workerConfig = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: missingRoot,
+        PI_MEMORY_MODEL: "claude-haiku-4-5",
+      },
+      homeDir: tempDir(),
+    });
+    const researchConfig = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: missingRoot,
+        PI_MEMORY_RESEARCH_MODEL: "gpt-5.3-codex-spark",
+      },
+      homeDir: tempDir(),
+    });
+
+    expect(workerConfig.memoryRoot).toBeUndefined();
+    expect(workerConfig.error).toContain("memory worker model must be provider-qualified");
+    expect(workerConfig.error).not.toContain("memory root does not exist");
+    expect(researchConfig.memoryRoot).toBeUndefined();
+    expect(researchConfig.error).toContain(
+      "memory research model must be provider-qualified",
+    );
+    expect(researchConfig.error).not.toContain("memory root does not exist");
   });
 });
 

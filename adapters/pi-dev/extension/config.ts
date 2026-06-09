@@ -26,6 +26,7 @@ export interface RuntimeConfig {
   cwd: string;
   memoryRoot?: string;
   model: string;
+  researchModel: string;
   debounceMs: number;
   maxBatchItems: number;
   disabledReason?: string;
@@ -50,6 +51,21 @@ function expandHome(path: string, homeDir: string): string {
   if (path === "~") return homeDir;
   if (path.startsWith("~/")) return resolve(homeDir, path.slice(2));
   return path;
+}
+
+export function validateProviderQualifiedModel(
+  model: string,
+  subject = "memory worker model",
+): string | undefined {
+  const trimmed = model.trim();
+  const slashIndex = trimmed.indexOf("/");
+  const provider = slashIndex === -1 ? "" : trimmed.slice(0, slashIndex);
+  const modelId = slashIndex === -1 ? trimmed : trimmed.slice(slashIndex + 1);
+
+  if (!provider || !modelId || modelId.includes("/")) {
+    return `${subject} must be provider-qualified as <provider>/<model-id>: ${trimmed}`;
+  }
+  return undefined;
 }
 
 export function resolveMemoryRoot(
@@ -86,6 +102,8 @@ export function resolveRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
   const env = input.env ?? process.env;
   const disabledReason = input.disabledReason?.trim() || undefined;
   const enabled = env.PI_MEMORY_ENABLED !== "0" && !disabledReason;
+  const model = env.PI_MEMORY_MODEL?.trim() || DEFAULT_WORKER_MODEL;
+  const researchModel = env.PI_MEMORY_RESEARCH_MODEL?.trim() || model;
   const base: RuntimeConfig = {
     enabled,
     disabledReason,
@@ -93,7 +111,8 @@ export function resolveRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
     ignore: envFlag(env.PI_MEMORY_IGNORE, "1"),
     reactive: envFlag(env.PI_MEMORY_REACTIVE, "1"),
     cwd: input.cwd,
-    model: env.PI_MEMORY_MODEL?.trim() || DEFAULT_WORKER_MODEL,
+    model,
+    researchModel,
     debounceMs: parsePositiveInteger(
       env.PI_MEMORY_DEBOUNCE_MS,
       DEFAULT_DEBOUNCE_MS,
@@ -105,6 +124,14 @@ export function resolveRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
   };
 
   if (!enabled) return base;
+
+  const workerModelError = validateProviderQualifiedModel(model);
+  if (workerModelError) return { ...base, error: workerModelError };
+  const researchModelError = validateProviderQualifiedModel(
+    researchModel,
+    "memory research model",
+  );
+  if (researchModelError) return { ...base, error: researchModelError };
 
   const root = resolveMemoryRoot(
     env.PI_MEMORY_ROOT,

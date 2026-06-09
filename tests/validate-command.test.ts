@@ -17,7 +17,13 @@ import type {
 } from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
-const envKeys = ["PI_MEMORY_ENABLED", "PI_MEMORY_ROOT", "PI_MEMORY_IGNORE"];
+const envKeys = [
+  "PI_MEMORY_ENABLED",
+  "PI_MEMORY_ROOT",
+  "PI_MEMORY_IGNORE",
+  "PI_MEMORY_MODEL",
+  "PI_MEMORY_RESEARCH_MODEL",
+];
 const savedEnv = new Map<string, string | undefined>();
 
 for (const key of envKeys) savedEnv.set(key, process.env[key]);
@@ -448,6 +454,24 @@ Use Bun for project automation.
       message: "memory: disabled",
       level: "info",
     });
+  });
+
+  test("memory-status reports malformed model configuration before command preflight", () => {
+    process.env.PI_MEMORY_ROOT = "/missing-memory-root";
+    process.env.PI_MEMORY_MODEL = "claude-haiku-4-5";
+    const { commands } = fakePi();
+    const ctx = fakeContext();
+
+    commands.get("memory-status")?.handler("", ctx);
+
+    expect(ctx.ui.notifications.at(-1)?.level).toBe("info");
+    expect(ctx.ui.notifications.at(-1)?.message).toContain("memory: unavailable");
+    expect(ctx.ui.notifications.at(-1)?.message).toContain(
+      "memory worker model must be provider-qualified",
+    );
+    expect(ctx.ui.notifications.at(-1)?.message).not.toContain(
+      "memory root does not exist",
+    );
   });
 
   test("host substrate disabled signal short-circuits handlers before root resolution", async () => {

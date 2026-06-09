@@ -15,7 +15,10 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RuntimeEnv } from "./config.ts";
+import {
+  validateProviderQualifiedModel,
+  type RuntimeEnv,
+} from "./config.ts";
 
 export type BatchTrigger = "agent_end" | "session_before_compact";
 export type WorkerRunStatus = "completed" | "failed" | "refused";
@@ -997,18 +1000,6 @@ function defaultLivePiProcessExecutor(
       });
     });
   });
-}
-
-export function validateProviderQualifiedModel(model: string): string | undefined {
-  const trimmed = model.trim();
-  const slashIndex = trimmed.indexOf("/");
-  const provider = slashIndex === -1 ? "" : trimmed.slice(0, slashIndex);
-  const modelId = slashIndex === -1 ? trimmed : trimmed.slice(slashIndex + 1);
-
-  if (!provider || !modelId || modelId.includes("/")) {
-    return `memory worker model must be provider-qualified as <provider>/<model-id>: ${trimmed}`;
-  }
-  return undefined;
 }
 
 function preflightLiveWorkerModel(

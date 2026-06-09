@@ -300,6 +300,28 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(worker.requests[0]?.env.PI_MEMORY_DRY_RUN).toBe("1");
   });
 
+  test("malformed worker model makes flush unavailable before launching a runner", async () => {
+    const worker = recordingWorker();
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: memoryRoot(),
+        PI_MEMORY_MODEL: "claude-haiku-4-5",
+      },
+      worker,
+    });
+
+    await core.handleAgentEnd({
+      messages: ["The durable decision is to fail malformed model config early."],
+    });
+    const result = await core.flush();
+
+    expect(core.pendingBatchItems).toBe(0);
+    expect(worker.requests).toHaveLength(0);
+    expect(result.status).toBe("unavailable");
+    expect(result.error).toContain("memory worker model must be provider-qualified");
+  });
+
   test("queue and worker audit records expose bounded schema fields outside prompt injection", async () => {
     const root = memoryRoot();
     writeFileSync(

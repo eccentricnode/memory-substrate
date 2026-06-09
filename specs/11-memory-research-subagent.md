@@ -48,8 +48,8 @@ Both paths call one shared `researchMemory(question, ctx)` orchestrator.
   child env in this pi.dev version; see `worker.ts:1506`).
 - Child env sets **`PI_MEMORY_ENABLED=0`** (recursion guard, so the research
   sub-agent cannot trigger its own research/worker — `worker.ts:109`).
-- Model is **provider-qualified** and validated (reuse / mirror
-  `validateProviderQualifiedModel`, `worker.ts:885`); default to the same codex
+- Model is **provider-qualified** and validated (reuse shared
+  `validateProviderQualifiedModel` in `config.ts` for worker/research); default to the same codex
   model as the worker; `PI_MEMORY_MODEL` (or a dedicated `PI_MEMORY_RESEARCH_MODEL`)
   overrides; preflight reachability before sending the question.
 - **Tools differ from the worker.** The worker is `--no-tools`; the research
