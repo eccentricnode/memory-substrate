@@ -1,5 +1,13 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
+- P0 — Memory research sub-agent (read-side mediator). NEW.
+  - Spec: `specs/11-memory-research-subagent.md` (read it first — it cites the patterns to mirror).
+  - Goal: an agent-callable tool `memory_research(question)` + a `/memory-research <question>` command that spawn a recursion-guarded, READ-ONLY pi sub-agent to rg/read `PI_MEMORY_ROOT` and return only a synthesis + citations — keeping the main session unpolluted.
+  - Mirror: `worker.ts` spawn (node:child_process, `PI_MEMORY_ENABLED=0`, provider-qualified codex model, NOT `pi.exec`); register the command like `index.ts:269-323`. Tool half needs pi's extension-tool API (not yet used here — reference pi SDK).
+  - Differs from worker: needs read+search tools (not `--no-tools`), so enforce read-only (no write/edit) confinement — this sub-agent is more privileged than the worker.
+  - Backpressure: mock the spawn (inject a fake runner like the worker tests); cover recursion-guard env, read-only args, model preflight, synthesis+citations parse, `found:false` miss path, disabled/ignore gates. Opt-in live test beside `tests/pi-dev-live-integration.test.ts`. `bunx tsc --noEmit && bun test` green.
+  - Increments: (1) shared `researchMemory` orchestrator + mocked-spawn tests; (2) `/memory-research` command via registerCommand; (3) agent-callable tool via pi tool API; (4) read-only confinement + recursion guard hardening; (5) opt-in live test + docs.
+
 - P1 — Frontmatter parser alignment in worker dedupe.
   - Status: open; worker-local frontmatter parsing treats flat top-level `type:` as typed, while the reference validator rejects flat `type:` outside `metadata.type`.
   - Plan: reuse/export a shared parser or make the worker parser accept only validator-conformant `metadata.type` for trusted type matching.
