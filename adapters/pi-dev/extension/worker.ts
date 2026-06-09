@@ -375,8 +375,22 @@ function parseTopicFrontmatter(content: string): {
     .match(/^description:\s*(.+)$/m)?.[1]
     ?.trim()
     .replace(/^["']|["']$/g, "");
-  const type = frontmatter.match(/^\s*type:\s*(.+)$/m)?.[1]?.trim();
+  const type = parseNestedMetadataType(frontmatter);
   return { name, description, type };
+}
+
+function parseNestedMetadataType(frontmatter: string): string | undefined {
+  const lines = frontmatter.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index++) {
+    if (!/^metadata:\s*$/.test(lines[index] ?? "")) continue;
+    for (const nestedLine of lines.slice(index + 1)) {
+      if (/^[^\s].+/.test(nestedLine)) break;
+      const match = nestedLine.match(/^[ \t]+type:\s*(.+)$/);
+      if (match?.[1]) return match[1].trim();
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 function boundedSnapshotField(value: string | undefined): string | undefined {
@@ -444,8 +458,7 @@ function findExistingTopic(
     const type = VALID_TYPES.has(frontmatter.type as MemoryType)
       ? (frontmatter.type as MemoryType)
       : undefined;
-    const sameType = type === undefined || type === draft.type;
-    if (!sameType) continue;
+    if (type === undefined || type !== draft.type) continue;
     if (frontmatter.name === desiredName) {
       return { path, name: frontmatter.name, type, score: 1 };
     }
@@ -975,6 +988,38 @@ function indexPointerLines(index: string): IndexPointerSnapshot[] {
     .filter((line): line is IndexPointerSnapshot => line !== undefined);
 }
 
+function assertDeleteTargetIsIndexedTopicMemory(
+  root: string,
+  topicPath: string,
+  topicRelativePath: string,
+): void {
+  const frontmatter = parseTopicFrontmatter(readFileSync(topicPath, "utf8"));
+  if (
+    !frontmatter.name ||
+    !frontmatter.description ||
+    !VALID_TYPES.has(frontmatter.type as MemoryType)
+  ) {
+    throw new Error(
+      `delete memory target is not a valid topic memory: ${topicRelativePath}`,
+    );
+  }
+  let index = "";
+  try {
+    index = readFileSync(safePath(root, "MEMORY.md"), "utf8");
+  } catch {
+    throw new Error("memory index does not exist");
+  }
+  if (
+    !indexPointerLines(index).some(
+      (pointer) => pointer.relativePath === topicRelativePath,
+    )
+  ) {
+    throw new Error(
+      `delete memory target is not indexed in MEMORY.md: ${topicRelativePath}`,
+    );
+  }
+}
+
 function snapshotRank(
   candidateKeywords: Set<string>,
   topic: TopicSnapshot,
@@ -1287,6 +1332,11 @@ export async function applyMemoryWriteDrafts(
         throw new Error(`delete memory target is not a file: ${draft.relativePath}`);
       }
       const topicRelativePath = relativeTopicPath(request.memoryRoot, topicPath);
+      assertDeleteTargetIsIndexedTopicMemory(
+        request.memoryRoot,
+        topicPath,
+        topicRelativePath,
+      );
       proposedPaths.add(topicPath);
       proposedPaths.add(safePath(request.memoryRoot, "MEMORY.md"));
       return { action: "delete", draft, topicPath, topicRelativePath };

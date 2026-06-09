@@ -238,6 +238,50 @@ Use Bun commands for project automation.
     )).toBe(true);
   });
 
+  test("flat type frontmatter is not trusted for dedupe", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "project_bun-commands.md"),
+      `---
+name: bun-commands
+description: Use Bun commands for project automation
+type: feedback
+---
+
+Historical flat frontmatter should not steer worker dedupe.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun commands](project_bun-commands.md) — Use Bun commands for project automation\n",
+    );
+    const beforeInvalidTopic = readFileSync(
+      join(root, "project_bun-commands.md"),
+      "utf8",
+    );
+    const worker = createDeterministicMemoryWorkerRunner({
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(
+      request(
+        root,
+        "The durable decision is to use Bun for all build and test commands.",
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(root, "project_bun-commands.md"), "utf8")).toBe(
+      beforeInvalidTopic,
+    );
+    expect(topicFiles(root)).toContain(
+      "project_use-bun-for-all-build-and-test-commands.md",
+    );
+    expect(result.changedPaths?.some((path) =>
+      path.endsWith("project_bun-commands.md"),
+    )).toBe(false);
+  });
+
   test("dry-run reports proposed paths and writes nothing", async () => {
     const root = memoryRoot();
     const before = readFileSync(join(root, "MEMORY.md"), "utf8");
@@ -393,6 +437,81 @@ Use Bun commands for project automation.
       "- [Stale rule](project_stale-rule.md) — Stale rule",
     );
     expect(readFileSync(join(root, "project_stale-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
+  });
+
+  test("delete draft refuses unindexed markdown files", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "project_unindexed-rule.md"),
+      `---
+name: unindexed-rule
+description: Unindexed rule
+metadata:
+  type: project
+---
+
+Unindexed rule.
+`,
+    );
+    const beforeTopic = readFileSync(join(root, "project_unindexed-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_unindexed-rule.md",
+          description: "unindexed stale removal",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("not indexed in MEMORY.md");
+    expect(readFileSync(join(root, "project_unindexed-rule.md"), "utf8")).toBe(
+      beforeTopic,
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);
+  });
+
+  test("delete draft refuses invalid topic frontmatter", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "project_invalid-rule.md"),
+      `---
+name: invalid-rule
+description: Invalid rule
+type: project
+---
+
+Invalid rule.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Invalid rule](project_invalid-rule.md) — Invalid rule\n",
+    );
+    const beforeTopic = readFileSync(join(root, "project_invalid-rule.md"), "utf8");
+    const beforeIndex = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_invalid-rule.md",
+          description: "invalid stale removal",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("not a valid topic memory");
+    expect(readFileSync(join(root, "project_invalid-rule.md"), "utf8")).toBe(
       beforeTopic,
     );
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(beforeIndex);

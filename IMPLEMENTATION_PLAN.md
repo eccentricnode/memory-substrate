@@ -8,16 +8,6 @@
   - Backpressure: mock the spawn (inject a fake runner like the worker tests); cover recursion-guard env, read-only args, model preflight, synthesis+citations parse, `found:false` miss path, disabled/ignore gates. Opt-in live test beside `tests/pi-dev-live-integration.test.ts`. `bunx tsc --noEmit && bun test` green.
   - Increments: (1) shared `researchMemory` orchestrator + mocked-spawn tests; (2) `/memory-research` command via registerCommand; (3) agent-callable tool via pi tool API; (4) read-only confinement + recursion guard hardening; (5) opt-in live test + docs.
 
-- P1 — Frontmatter parser alignment in worker dedupe.
-  - Status: open; worker-local frontmatter parsing treats flat top-level `type:` as typed, while the reference validator rejects flat `type:` outside `metadata.type`.
-  - Plan: reuse/export a shared parser or make the worker parser accept only validator-conformant `metadata.type` for trusted type matching.
-  - Plan: add a worker regression with an existing flat-`type:` topic proving dedupe cannot rely on validator-invalid type metadata.
-
-- P1 — Delete drafts must target topic memories only.
-  - Status: open; delete drafts reject `MEMORY.md` and out-of-root paths, but any existing `.md` file under the root can be deleted without first proving it is a valid topic memory.
-  - Plan: before delete planning, require valid topic frontmatter and an index pointer for the target, or use the reference validator/topic parser to classify it as an existing topic memory.
-  - Plan: add regressions for deleting an unindexed markdown file and a markdown file with invalid/missing frontmatter.
-
 - P1 — Prompt fallback block length.
   - Status: open; SPEC §3.5 caps prompt-bakeable write protocol blocks at 80 lines, while `adapters/pi-dev/memory-protocol.md` is currently over that cap.
   - Plan: compress the fallback protocol without dropping disabled/ignore/dry-run, two-step save, dedupe, exclusions, validation, and read-verification requirements.
@@ -58,6 +48,8 @@
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - Worker dedupe now only trusts validator-conformant nested `metadata.type`, so flat top-level `type:` frontmatter cannot masquerade as typed topic metadata during snapshot/dedupe decisions. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.
+  - Delete drafts now require valid indexed topic memories, preventing deletion of unindexed markdown files or files with invalid/missing topic frontmatter under the memory root. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.
   - Dry-run now applies proposed changes to a temporary copy of the memory root, runs the reference validator before printing proposed stdout, deletes the temporary root, and leaves the real root unchanged. Regression coverage proves a validator-only broken-link proposal fails dry-run without writing topic/index changes; focused `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/validate-command.test.ts` passed with 57 pass, 0 fail, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 101 pass, 7 skip, 0 fail, 108 tests across 9 files.
   - User-facing flush results now preserve validator rollback failures as `validation-failed`, and `/memory-flush` reports a distinct validation-failed message while retaining queued candidates. Regression coverage checks both core status and command notification; focused `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/validate-command.test.ts` passed with 57 pass, 0 fail, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 101 pass, 7 skip, 0 fail, 108 tests across 9 files.
   - Live worker existing-memory snapshots are bounded to 8 KB / 40 topics, rank topic metadata against candidate batch keywords for dedupe, exclude raw non-pointer index content, and report truncation counts/flags; this keeps forced-write prompts from leaking or bloating the memory corpus. Regression coverage in `tests/live-worker.test.ts` passed, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 99 pass, 7 skip, 0 fail, 106 tests across 9 files.
