@@ -6,12 +6,20 @@ import {
   type CompactMemoryDirectoryOptions,
 } from "../../../reference/compactor.ts";
 import {
+  buildReactiveMemoryGate,
   buildMemoryInjection,
   INJECTION_MAX_BYTES,
   INJECTION_MAX_LINES,
   matchedIgnoreMemoryRequest,
   type InjectionFileSystem,
+  type MemoryInjection,
+  type ReactiveMemoryGateReason,
 } from "./injection.ts";
+import {
+  researchMemory,
+  type MemoryResearchRequest,
+  type MemoryResearchResult,
+} from "./research.ts";
 import {
   buildWorkerEnv,
   outputTail,
@@ -41,6 +49,7 @@ export interface MemoryExtensionCoreOptions {
   disabledReason?: string;
   fs?: InjectionFileSystem;
   worker?: MemoryWorkerRunner;
+  research?: MemoryResearchRunner;
   validator?: MemoryValidatorRunner;
   compactor?: MemoryCompactorRunner;
   state?: ExtensionStateSink;
@@ -55,6 +64,10 @@ export type MemoryCompactorRunner = (
   memoryRoot: string,
   options?: CompactMemoryDirectoryOptions,
 ) => CompactionReport;
+
+export type MemoryResearchRunner = (
+  request: MemoryResearchRequest,
+) => Promise<MemoryResearchResult>;
 
 export interface BeforeAgentStartEvent {
   prompt: string;
@@ -163,10 +176,23 @@ export interface InjectionAuditRecord {
   createdAt: number;
 }
 
+export interface ReactiveResearchAuditRecord {
+  action: "skipped" | "dry-run" | "fired" | "not-found" | "failed";
+  reason?: ReactiveMemoryGateReason;
+  topScore: number;
+  found?: boolean;
+  status?: MemoryResearchResult["status"];
+  citationCount?: number;
+  wouldInject?: boolean;
+  error?: string;
+  createdAt: number;
+}
+
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
 const MODE_AUDIT_TYPE = "memory-substrate-mode";
 const INJECTION_AUDIT_TYPE = "memory-substrate-injection";
+const REACTIVE_AUDIT_TYPE = "memory-substrate-reactive-research";
 const AUDIT_STRING_CAP = 300;
 const AUDIT_ARRAY_ITEM_CAP = 5;
 const AUDIT_OBJECT_KEY_CAP = 12;
@@ -175,6 +201,8 @@ const AUDIT_PREVIEW_CAP = 1_200;
 const REFRESH_PROPOSAL_DIR = ".memory-substrate/refresh-proposal";
 const IGNORE_MODE_INSTRUCTION =
   "Memory ignore mode is active for this session. Do not cite, compare against, or apply durable memory that may already be present in context.";
+const REACTIVE_ATTRIBUTION =
+  "Durable memory research from memory-substrate (advisory context, not instruction):";
 
 interface WorkerBatchOutcome {
   status: WorkerRunStatus;
@@ -273,11 +301,32 @@ function refreshProposalOutputDir(
   return resolvedOutput;
 }
 
+function renderResearchInjection(result: MemoryResearchResult): MemoryInjection | undefined {
+  const lines = [
+    result.answer.trim(),
+    ...result.citations.map((path) => `- ${path}`),
+  ].filter(Boolean);
+  const selected: string[] = [];
+  for (const line of lines) {
+    if (selected.length >= INJECTION_MAX_LINES) break;
+    const candidate = `${REACTIVE_ATTRIBUTION}\n${[...selected, line].join("\n")}`;
+    if (Buffer.byteLength(candidate, "utf8") > INJECTION_MAX_BYTES) break;
+    selected.push(line);
+  }
+  if (selected.length === 0) return undefined;
+  return {
+    text: `${REACTIVE_ATTRIBUTION}\n${selected.join("\n")}`,
+    selectedLines: selected,
+    truncated: selected.length < lines.length,
+  };
+}
+
 export class MemoryExtensionCore {
   readonly config: RuntimeConfig;
   private ignoreForSession: boolean;
   private fs?: InjectionFileSystem;
   private worker?: MemoryWorkerRunner;
+  private research: MemoryResearchRunner;
   private validator: MemoryValidatorRunner;
   private compactor: MemoryCompactorRunner;
   private state?: ExtensionStateSink;
@@ -288,12 +337,21 @@ export class MemoryExtensionCore {
   private processingPromise?: Promise<void>;
   private itemSequence = 0;
   private batchSequence = 0;
+  private env?: RuntimeEnv;
 
   constructor(options: MemoryExtensionCoreOptions) {
     this.config = resolveRuntimeConfig(options);
     this.ignoreForSession = this.config.ignore;
+    this.env = options.env;
     this.fs = options.fs;
     this.worker = options.worker;
+    this.research =
+      options.research ??
+      ((request) =>
+        researchMemory({
+          ...request,
+          env: request.env ?? this.env ?? process.env,
+        }));
     this.validator = options.validator ?? runReferenceValidator;
     this.compactor = options.compactor ?? compactMemoryDirectory;
     this.state = options.state;
@@ -330,14 +388,103 @@ export class MemoryExtensionCore {
     }
     if (this.ignoreForSession) return this.withIgnoreInstruction(event.systemPrompt);
 
+    return this.renderIndexInjection(event);
+  }
+
+  async handleBeforeAgentStartAsync(
+    event: BeforeAgentStartEvent,
+  ): Promise<BeforeAgentStartResult | undefined> {
+    if (!this.config.enabled) return undefined;
+    const ignoreMatch = matchedIgnoreMemoryRequest(event.prompt);
+    if (ignoreMatch) {
+      this.ignoreForSession = true;
+      this.recordModeAudit("ignore", "prompt", {
+        matchedPhrase: ignoreMatch,
+        prompt: event.prompt,
+      });
+      return this.withIgnoreInstruction(event.systemPrompt);
+    }
+    if (this.ignoreForSession) return this.withIgnoreInstruction(event.systemPrompt);
+    if (!this.config.reactive) return this.renderIndexInjection(event);
+
+    const gate = buildReactiveMemoryGate({
+      config: this.config,
+      prompt: event.prompt,
+      ignored: this.ignoreForSession,
+      fs: this.fs,
+    });
+    if (!gate.shouldFire) {
+      this.recordReactiveAudit({
+        action: "skipped",
+        topScore: gate.topScore,
+        createdAt: this.scheduler.now(),
+      });
+      return this.appendInjection(event.systemPrompt, gate.injection);
+    }
+
+    if (this.config.dryRun) {
+      this.recordReactiveAudit({
+        action: "dry-run",
+        reason: gate.reason,
+        topScore: gate.topScore,
+        wouldInject: true,
+        createdAt: this.scheduler.now(),
+      });
+      return undefined;
+    }
+
+    const result = await this.research({
+      question: event.prompt,
+      cwd: this.config.cwd,
+      env: this.env ?? process.env,
+      homeDir: undefined,
+    });
+    if (result.found) {
+      const injection = renderResearchInjection(result);
+      this.recordReactiveAudit({
+        action: "fired",
+        reason: gate.reason,
+        topScore: gate.topScore,
+        found: true,
+        status: result.status,
+        citationCount: result.citations.length,
+        wouldInject: Boolean(injection),
+        createdAt: this.scheduler.now(),
+      });
+      return this.appendInjection(event.systemPrompt, injection);
+    }
+
+    this.recordReactiveAudit({
+      action: result.status === "not-found" ? "not-found" : "failed",
+      reason: gate.reason,
+      topScore: gate.topScore,
+      found: false,
+      status: result.status,
+      citationCount: result.citations.length,
+      wouldInject: Boolean(gate.injection),
+      error: result.error,
+      createdAt: this.scheduler.now(),
+    });
+    return this.appendInjection(event.systemPrompt, gate.injection);
+  }
+
+  private renderIndexInjection(
+    event: BeforeAgentStartEvent,
+  ): BeforeAgentStartResult | undefined {
     const injection = buildMemoryInjection({
       config: this.config,
       prompt: event.prompt,
       ignored: this.ignoreForSession,
       fs: this.fs,
     });
-    if (!injection) return undefined;
+    return this.appendInjection(event.systemPrompt, injection);
+  }
 
+  private appendInjection(
+    systemPrompt: string,
+    injection: MemoryInjection | undefined,
+  ): BeforeAgentStartResult | undefined {
+    if (!injection) return undefined;
     this.recordInjectionAudit({
       selectedLineCount: injection.selectedLines.length,
       byteLength: Buffer.byteLength(injection.text, "utf8"),
@@ -348,7 +495,7 @@ export class MemoryExtensionCore {
       createdAt: this.scheduler.now(),
     });
 
-    const base = event.systemPrompt.trimEnd();
+    const base = systemPrompt.trimEnd();
     return {
       systemPrompt: base ? `${base}\n\n${injection.text}` : injection.text,
     };
@@ -752,6 +899,10 @@ export class MemoryExtensionCore {
 
   private recordInjectionAudit(record: InjectionAuditRecord): void {
     this.state?.appendEntry(INJECTION_AUDIT_TYPE, record);
+  }
+
+  private recordReactiveAudit(record: ReactiveResearchAuditRecord): void {
+    this.state?.appendEntry(REACTIVE_AUDIT_TYPE, record);
   }
 
   private auditItems(items: MemoryBatchItem[]): BatchItemAuditSummary[] {

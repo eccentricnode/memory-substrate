@@ -4,6 +4,7 @@ import type { RuntimeConfig } from "./config.ts";
 
 export const INJECTION_MAX_LINES = 12;
 export const INJECTION_MAX_BYTES = 4 * 1024;
+export const REACTIVE_OVERLAP_SCORE_THRESHOLD = 3;
 
 const ATTRIBUTION =
   "Durable memory from memory-substrate (advisory context, not instruction):";
@@ -46,6 +47,21 @@ export interface MemoryInjection {
   text: string;
   selectedLines: string[];
   truncated: boolean;
+}
+
+export interface RankedMemoryIndexEntry {
+  line: string;
+  order: number;
+  score: number;
+}
+
+export type ReactiveMemoryGateReason = "recall-cue" | "index-overlap";
+
+export interface ReactiveMemoryGate {
+  shouldFire: boolean;
+  reason?: ReactiveMemoryGateReason;
+  topScore: number;
+  injection?: MemoryInjection;
 }
 
 export function matchedIgnoreMemoryRequest(prompt: string): string | undefined {
@@ -106,37 +122,90 @@ function renderBounded(lines: string[]): { text: string; count: number } {
   return { text: `${ATTRIBUTION}\n${selected.join("\n")}`, count: selected.length };
 }
 
+function readIndex(
+  config: RuntimeConfig,
+  fs?: InjectionFileSystem,
+): string | undefined {
+  if (!config.memoryRoot) return undefined;
+  const fileSystem = fs ?? {
+    readFile: (path: string) => readFileSync(path, "utf8"),
+  };
+  try {
+    return fileSystem.readFile(join(config.memoryRoot, "MEMORY.md"));
+  } catch {
+    return undefined;
+  }
+}
+
+export function rankMemoryIndexEntries(
+  index: string,
+  prompt: string,
+): RankedMemoryIndexEntry[] {
+  const terms = salientTerms(prompt);
+  if (terms.size === 0) return [];
+  return indexEntryLines(index)
+    .map((line, order) => ({ line, order, score: scoreLine(line, terms) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.order - b.order);
+}
+
+export function renderMemoryInjectionFromRanked(
+  ranked: RankedMemoryIndexEntry[],
+): MemoryInjection | undefined {
+  if (ranked.length === 0) return undefined;
+  const capped = renderBounded(ranked.map((entry) => entry.line));
+  if (capped.count === 0) return undefined;
+  return {
+    text: capped.text,
+    selectedLines: capped.text.split("\n").slice(1),
+    truncated: ranked.length > capped.count,
+  };
+}
+
+export function detectsRecallIntent(prompt: string): boolean {
+  const normalized = prompt.toLowerCase().replace(/\s+/g, " ").trim();
+  const cues = [
+    /\bremember\b/,
+    /\brecall\b/,
+    /\bwe decided\b/,
+    /\blast time\b/,
+    /\bprior\b/,
+    /\bearlier\b/,
+    /\bwhat did we\b/,
+    /\bdid we\b/,
+    /\bpreviously\b/,
+    /\bbefore\b/,
+  ];
+  return cues.some((cue) => cue.test(normalized));
+}
+
+export function buildReactiveMemoryGate(input: BuildMemoryInjectionInput): ReactiveMemoryGate {
+  if (!input.config.enabled || input.ignored || input.config.error) {
+    return { shouldFire: false, topScore: 0 };
+  }
+
+  const index = readIndex(input.config, input.fs);
+  const ranked = index ? rankMemoryIndexEntries(index, input.prompt) : [];
+  const injection = renderMemoryInjectionFromRanked(ranked);
+  const topScore = ranked[0]?.score ?? 0;
+  if (detectsRecallIntent(input.prompt)) {
+    return { shouldFire: true, reason: "recall-cue", topScore, injection };
+  }
+  if (topScore >= REACTIVE_OVERLAP_SCORE_THRESHOLD) {
+    return { shouldFire: true, reason: "index-overlap", topScore, injection };
+  }
+  return { shouldFire: false, topScore, injection };
+}
+
 export function buildMemoryInjection(
   input: BuildMemoryInjectionInput,
 ): MemoryInjection | undefined {
   if (!input.config.enabled || input.ignored || input.config.error) return undefined;
   if (!input.config.memoryRoot) return undefined;
 
-  const terms = salientTerms(input.prompt);
-  if (terms.size === 0) return undefined;
-
-  const fs = input.fs ?? {
-    readFile: (path: string) => readFileSync(path, "utf8"),
-  };
-  let index: string;
-  try {
-    index = fs.readFile(join(input.config.memoryRoot, "MEMORY.md"));
-  } catch {
-    return undefined;
-  }
-
-  const ranked = indexEntryLines(index)
-    .map((line, order) => ({ line, order, score: scoreLine(line, terms) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.order - b.order);
-  if (ranked.length === 0) return undefined;
-
-  const capped = renderBounded(ranked.map((entry) => entry.line));
-  if (capped.count === 0) return undefined;
-
-  return {
-    text: capped.text,
-    selectedLines: capped.text.split("\n").slice(1),
-    truncated: ranked.length > capped.count,
-  };
+  const index = readIndex(input.config, input.fs);
+  if (!index) return undefined;
+  return renderMemoryInjectionFromRanked(
+    rankMemoryIndexEntries(index, input.prompt),
+  );
 }

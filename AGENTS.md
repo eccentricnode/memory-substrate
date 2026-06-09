@@ -11,6 +11,8 @@ capability. Source: `adapters/pi-dev/extension/`. Shared lib: `reference/`. Host
 ## Toolchain (bun always — never npm/npx)
 - Type-check: `bunx tsc --noEmit`
 - Test:       `bun test`
+- Reactive read-side research: opt in with `PI_MEMORY_REACTIVE=1`; covered by normal
+  `bunx tsc --noEmit && bun test`. Live behavior remains `bun run test:pi-live`.
 - Run validator: `bun reference/validator.ts <memory_root>`
 - Run migrator:  `bun reference/migrator.ts <pai_root> <output_dir>`
 - Opt-in live pi.dev harness: `bun run test:pi-live` (real pi/model calls; not green gate)

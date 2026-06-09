@@ -23,7 +23,7 @@ interface PiEventApi {
     handler: (
       event: { prompt: string; systemPrompt: string },
       ctx: PiContext,
-    ) => { systemPrompt?: string } | undefined,
+    ) => { systemPrompt?: string } | undefined | Promise<{ systemPrompt?: string } | undefined>,
   ): void;
   on(
     event: "agent_end",
@@ -93,6 +93,7 @@ function createCore(
       ? { appendEntry: (customType, data) => pi.appendEntry?.(customType, data) }
       : undefined,
     worker: options.worker ?? createLivePiMemoryWorkerRunner(),
+    research: (request) => researchMemory(request, options.research),
     disabledReason: memoryDisabledReason(ctx, options),
   });
 }
@@ -288,14 +289,14 @@ export default function memorySubstrateExtension(
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (memoryDisabled(ctx, options)) {
       core = undefined;
       ctx.ui?.setStatus?.("memory-substrate", "memory: disabled");
       return undefined;
     }
     core ??= createCore(ctx, pi, options);
-    const result = core.handleBeforeAgentStart(event);
+    const result = await core.handleBeforeAgentStartAsync(event);
     ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
     return result;
   });

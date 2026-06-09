@@ -428,7 +428,7 @@ Use Bun for project automation.
     const ctx = fakeContext();
 
     handlers.get("session_start")?.({}, ctx);
-    const startResult = handlers.get("before_agent_start")?.(
+    const startResult = await handlers.get("before_agent_start")?.(
       { prompt: "remember Bun", systemPrompt: "base" },
       ctx,
     );
@@ -463,7 +463,7 @@ Use Bun for project automation.
     });
 
     handlers.get("session_start")?.({}, ctx);
-    const startResult = handlers.get("before_agent_start")?.(
+    const startResult = await handlers.get("before_agent_start")?.(
       { prompt: "remember Bun", systemPrompt: "base" },
       ctx,
     );

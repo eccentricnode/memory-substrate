@@ -22,6 +22,7 @@ export interface RuntimeConfig {
   enabled: boolean;
   dryRun: boolean;
   ignore: boolean;
+  reactive: boolean;
   cwd: string;
   memoryRoot?: string;
   model: string;
@@ -90,6 +91,7 @@ export function resolveRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
     disabledReason,
     dryRun: envFlag(env.PI_MEMORY_DRY_RUN, "1"),
     ignore: envFlag(env.PI_MEMORY_IGNORE, "1"),
+    reactive: envFlag(env.PI_MEMORY_REACTIVE, "1"),
     cwd: input.cwd,
     model: env.PI_MEMORY_MODEL?.trim() || DEFAULT_WORKER_MODEL,
     debounceMs: parsePositiveInteger(

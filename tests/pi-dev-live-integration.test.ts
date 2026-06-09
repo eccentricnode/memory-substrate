@@ -28,6 +28,7 @@ const LIVE_TIMEOUT_MS = 240_000;
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
 const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const MODE_AUDIT_TYPE = "memory-substrate-mode";
+const REACTIVE_AUDIT_TYPE = "memory-substrate-reactive-research";
 
 interface ProcessResult {
   code: number;
@@ -170,6 +171,12 @@ function queueRecords(run: LivePiRun): Record<string, unknown>[] {
 
 function modeRecords(run: LivePiRun): Record<string, unknown>[] {
   return customEntries(run, MODE_AUDIT_TYPE).map(
+    (entry) => entry.data as Record<string, unknown>,
+  );
+}
+
+function reactiveRecords(run: LivePiRun): Record<string, unknown>[] {
+  return customEntries(run, REACTIVE_AUDIT_TYPE).map(
     (entry) => entry.data as Record<string, unknown>,
   );
 }
@@ -549,6 +556,30 @@ liveDescribe("opt-in live pi.dev memory integration", () => {
         expectSnapshotUnchanged(run.memoryRootBefore, snapshotPath(run.memoryRoot));
         expect(workerRecords(run)).toEqual([]);
         expect(queueRecords(run)).toEqual([]);
+      } finally {
+        expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));
+        cleanup(run);
+      }
+    },
+    LIVE_TIMEOUT_MS + 30_000,
+  );
+
+  test(
+    "reactive memory trigger injects seeded research without mutating it",
+    async () => {
+      const defaultRootBefore = snapshotPath(DEFAULT_MEMORY_ROOT);
+      const run = await runLivePi(
+        "What did we decide last time about the live-research verification command? Reply with the command only.",
+        { PI_MEMORY_REACTIVE: "1" },
+        seedResearchMemory,
+      );
+      try {
+        expectPiSuccess(run);
+        expect(`${run.result.stdout}\n${run.result.stderr}`).toMatch(/bunx tsc --noEmit && bun test/i);
+        const records = reactiveRecords(run);
+        expect(records.some((record) => record.action === "fired")).toBe(true);
+        expect(records.some((record) => record.found === true)).toBe(true);
+        expectSnapshotUnchanged(run.memoryRootBefore, snapshotPath(run.memoryRoot));
       } finally {
         expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));
         cleanup(run);

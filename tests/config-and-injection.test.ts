@@ -14,9 +14,11 @@ import {
 } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore } from "../adapters/pi-dev/extension/core.ts";
 import {
+  buildReactiveMemoryGate,
   INJECTION_MAX_BYTES,
   INJECTION_MAX_LINES,
 } from "../adapters/pi-dev/extension/injection.ts";
+import type { MemoryResearchResult } from "../adapters/pi-dev/extension/research.ts";
 
 const tmpRoots: string[] = [];
 
@@ -44,6 +46,26 @@ function recordingState() {
       entries.push({ type, data });
     },
   };
+}
+
+function foundResearch(answer = "Use Bun for verification."): MemoryResearchResult {
+  return {
+    status: "found",
+    found: true,
+    answer,
+    citations: ["project_bun.md"],
+  };
+}
+
+function recordingResearch(result: MemoryResearchResult) {
+  const calls: Array<{ question: string; cwd: string }> = [];
+  return Object.assign(
+    async (request: { question: string; cwd: string }) => {
+      calls.push(request);
+      return result;
+    },
+    { calls },
+  );
 }
 
 describe("pi-dev runtime config", () => {
@@ -188,6 +210,7 @@ describe("pi-dev runtime config", () => {
         PI_MEMORY_ROOT: root,
         PI_MEMORY_DRY_RUN: "1",
         PI_MEMORY_IGNORE: "1",
+        PI_MEMORY_REACTIVE: "1",
         PI_MEMORY_MODEL: "openai-codex/gpt-5.3-codex-spark",
         PI_MEMORY_DEBOUNCE_MS: "25",
         PI_MEMORY_MAX_BATCH_ITEMS: "3",
@@ -197,6 +220,7 @@ describe("pi-dev runtime config", () => {
 
     expect(config.dryRun).toBe(true);
     expect(config.ignore).toBe(true);
+    expect(config.reactive).toBe(true);
     expect(config.model).toBe("openai-codex/gpt-5.3-codex-spark");
     expect(config.debounceMs).toBe(25);
     expect(config.maxBatchItems).toBe(3);
@@ -399,5 +423,211 @@ describe("memory injection", () => {
     expect(auditRecord.selectedLineCount).toBeGreaterThan(0);
     expect(auditRecord.selectedLineCount).toBeLessThan(INJECTION_MAX_LINES);
     expect(auditRecord.truncated).toBe(true);
+  });
+});
+
+describe("reactive memory trigger", () => {
+  test("gate fires on recall-intent cues", () => {
+    const root = tempDir();
+    writeIndex(root, []);
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      homeDir: tempDir(),
+    });
+
+    const gate = buildReactiveMemoryGate({
+      config,
+      prompt: "What did we decide last time about releases?",
+      ignored: false,
+    });
+
+    expect(gate.shouldFire).toBe(true);
+    expect(gate.reason).toBe("recall-cue");
+  });
+
+  test("gate fires on high index overlap and skips on weak overlap", () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Ralph loop](project_ralph-loop.md) — Ralph loop uses one test runner"]);
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      homeDir: tempDir(),
+    });
+
+    const high = buildReactiveMemoryGate({
+      config,
+      prompt: "Ralph loop",
+      ignored: false,
+    });
+    const weak = buildReactiveMemoryGate({
+      config,
+      prompt: "Ralph",
+      ignored: false,
+    });
+
+    expect(high.shouldFire).toBe(true);
+    expect(high.reason).toBe("index-overlap");
+    expect(weak.shouldFire).toBe(false);
+  });
+
+  test("gated-in research synthesis supersedes index injection", async () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Bun checks](project_bun.md) — index-only sentinel"]);
+    const research = recordingResearch(foundResearch("Run bunx tsc and bun test."));
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      research,
+    });
+
+    const result = await core.handleBeforeAgentStartAsync({
+      prompt: "Remember the Bun checks?",
+      systemPrompt: "base",
+    });
+
+    expect(research.calls).toHaveLength(1);
+    expect(result?.systemPrompt).toContain("Durable memory research");
+    expect(result?.systemPrompt).toContain("Run bunx tsc and bun test.");
+    expect(result?.systemPrompt).toContain("- project_bun.md");
+    expect(result?.systemPrompt).not.toContain("index-only sentinel");
+  });
+
+  test("gated-out reactive mode falls back to index-only injection", async () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Bun checks](project_bun.md) — index-only sentinel"]);
+    const research = recordingResearch(foundResearch());
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      research,
+    });
+
+    const result = await core.handleBeforeAgentStartAsync({
+      prompt: "Bun",
+      systemPrompt: "base",
+    });
+
+    expect(research.calls).toHaveLength(0);
+    expect(result?.systemPrompt).toContain("Durable memory from memory-substrate");
+    expect(result?.systemPrompt).toContain("index-only sentinel");
+  });
+
+  test("not-found research injects no synthesis and may fall back to index lines", async () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Bun checks](project_bun.md) — index fallback sentinel"]);
+    const research = recordingResearch({
+      status: "not-found",
+      found: false,
+      answer: "No matching memory was found.",
+      citations: [],
+    });
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      research,
+    });
+
+    const result = await core.handleBeforeAgentStartAsync({
+      prompt: "Do you remember Bun checks?",
+      systemPrompt: "base",
+    });
+
+    expect(research.calls).toHaveLength(1);
+    expect(result?.systemPrompt).not.toContain("No matching memory was found.");
+    expect(result?.systemPrompt).toContain("index fallback sentinel");
+  });
+
+  test("reactive flag off preserves index-only behavior without research", async () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Bun checks](project_bun.md) — flag-off sentinel"]);
+    const research = recordingResearch(foundResearch());
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      research,
+    });
+
+    const result = await core.handleBeforeAgentStartAsync({
+      prompt: "Remember Bun checks?",
+      systemPrompt: "base",
+    });
+
+    expect(research.calls).toHaveLength(0);
+    expect(result?.systemPrompt).toContain("flag-off sentinel");
+    expect(result?.systemPrompt).not.toContain("Durable memory research");
+  });
+
+  test("disabled, ignore, and dry-run suppress reactive research", async () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Bun checks](project_bun.md) — dry-run sentinel"]);
+    const research = recordingResearch(foundResearch());
+    const disabled = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: root,
+        PI_MEMORY_REACTIVE: "1",
+        PI_MEMORY_ENABLED: "0",
+      },
+      research,
+    });
+    const ignored = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: root,
+        PI_MEMORY_REACTIVE: "1",
+        PI_MEMORY_IGNORE: "1",
+      },
+      research,
+    });
+    const dryRun = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: root,
+        PI_MEMORY_REACTIVE: "1",
+        PI_MEMORY_DRY_RUN: "1",
+      },
+      research,
+    });
+
+    expect(
+      await disabled.handleBeforeAgentStartAsync({
+        prompt: "Remember Bun checks?",
+        systemPrompt: "base",
+      }),
+    ).toBeUndefined();
+    expect(
+      (
+        await ignored.handleBeforeAgentStartAsync({
+          prompt: "Remember Bun checks?",
+          systemPrompt: "base",
+        })
+      )?.systemPrompt,
+    ).toContain("Memory ignore mode is active");
+    expect(
+      await dryRun.handleBeforeAgentStartAsync({
+        prompt: "Remember Bun checks?",
+        systemPrompt: "base",
+      }),
+    ).toBeUndefined();
+    expect(research.calls).toHaveLength(0);
+  });
+
+  test("one reactive turn fires research at most once", async () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Bun checks](project_bun.md) — overlap sentinel"]);
+    const research = recordingResearch(foundResearch());
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      research,
+    });
+
+    await core.handleBeforeAgentStartAsync({
+      prompt: "Remember Bun checks?",
+      systemPrompt: "base",
+    });
+
+    expect(research.calls).toHaveLength(1);
   });
 });
