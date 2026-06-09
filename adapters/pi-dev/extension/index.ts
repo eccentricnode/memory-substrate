@@ -10,6 +10,11 @@ import {
   createLivePiMemoryWorkerRunner,
   type MemoryWorkerRunner,
 } from "./worker.ts";
+import {
+  researchMemory,
+  type MemoryResearchOptions,
+  type MemoryResearchResult,
+} from "./research.ts";
 
 interface PiEventApi {
   on(event: "session_start", handler: (event: unknown, ctx: PiContext) => void): void;
@@ -36,6 +41,21 @@ interface PiEventApi {
       handler: (args: string, ctx: PiContext) => void | Promise<void>;
     },
   ): void;
+  registerTool?(definition: {
+    name: string;
+    label?: string;
+    description: string;
+    promptSnippet?: string;
+    promptGuidelines?: string[];
+    parameters: unknown;
+    execute(
+      toolCallId: string,
+      params: unknown,
+      signal: unknown,
+      onUpdate: unknown,
+      ctx: PiContext,
+    ): Promise<{ content: Array<{ type: "text"; text: string }>; details: unknown }>;
+  }): void;
 }
 
 interface PiContext {
@@ -58,6 +78,7 @@ interface PiContext {
 
 interface MemorySubstrateExtensionOptions {
   worker?: MemoryWorkerRunner;
+  research?: MemoryResearchOptions;
   disabledSignal?: (ctx: PiContext) => boolean | string | undefined;
 }
 
@@ -215,6 +236,42 @@ function refreshOutputDir(args: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function researchLevel(
+  result: MemoryResearchResult,
+): "info" | "warn" | "error" | "success" {
+  if (result.status === "found") return "success";
+  if (
+    result.status === "disabled" ||
+    result.status === "ignored" ||
+    result.status === "not-found"
+  ) {
+    return "info";
+  }
+  return "error";
+}
+
+function researchMessage(result: MemoryResearchResult): string {
+  if (result.status === "disabled") return "memory research skipped: disabled";
+  if (result.status === "ignored") return "memory research skipped: ignored";
+  if (result.status === "unavailable") {
+    return `memory research unavailable: ${result.error ?? "memory root unavailable"}`;
+  }
+  if (result.status === "failed") {
+    return `memory research failed: ${result.error ?? "sub-agent failed"}`;
+  }
+  const citations =
+    result.citations.length > 0
+      ? `\n\nCitations:\n${result.citations.map((path) => `- ${path}`).join("\n")}`
+      : "";
+  return `${result.answer}${citations}`;
+}
+
+function researchQuestionFromParams(params: unknown): string {
+  if (!params || typeof params !== "object") return "";
+  const question = (params as { question?: unknown }).question;
+  return typeof question === "string" ? question : "";
+}
+
 export default function memorySubstrateExtension(
   pi: PiEventApi,
   options: MemorySubstrateExtensionOptions = {},
@@ -319,6 +376,60 @@ export default function memorySubstrateExtension(
       core ??= createCore(ctx, pi, options);
       const result = core.refreshMemory({ outputDir: refreshOutputDir(args) });
       ctx.ui?.notify?.(refreshMessage(result), refreshLevel(result));
+    },
+  });
+
+  pi.registerCommand?.("memory-research", {
+    description: "Research durable memory in a read-only sub-agent",
+    handler: async (args, ctx) => {
+      if (memoryDisabled(ctx, options)) {
+        core = undefined;
+        ctx.ui?.notify?.("memory research skipped: disabled", "info");
+        return;
+      }
+      const result = await researchMemory(
+        { question: args, cwd: ctx.cwd, env: process.env },
+        options.research,
+      );
+      ctx.ui?.notify?.(researchMessage(result), researchLevel(result));
+    },
+  });
+
+  pi.registerTool?.({
+    name: "memory_research",
+    label: "Memory Research",
+    description:
+      "Research durable memory in a read-only sub-agent and return a synthesis with citations.",
+    promptSnippet: "Research durable memory without loading raw memory files into context",
+    promptGuidelines: [
+      "Use memory_research when the user asks about prior durable memory or previous decisions that are not already visible in context.",
+    ],
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["question"],
+      properties: {
+        question: {
+          type: "string",
+          description: "The memory question to answer from durable memory.",
+        },
+      },
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (memoryDisabled(ctx, options)) {
+        return {
+          content: [{ type: "text", text: "memory research skipped: disabled" }],
+          details: { status: "disabled", found: false, citations: [] },
+        };
+      }
+      const result = await researchMemory(
+        { question: researchQuestionFromParams(params), cwd: ctx.cwd, env: process.env },
+        options.research,
+      );
+      return {
+        content: [{ type: "text", text: researchMessage(result) }],
+        details: result,
+      };
     },
   });
 }

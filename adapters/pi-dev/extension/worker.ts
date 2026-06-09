@@ -895,7 +895,7 @@ function defaultLivePiProcessExecutor(
   });
 }
 
-function validateProviderQualifiedModel(model: string): string | undefined {
+export function validateProviderQualifiedModel(model: string): string | undefined {
   const trimmed = model.trim();
   const slashIndex = trimmed.indexOf("/");
   const provider = slashIndex === -1 ? "" : trimmed.slice(0, slashIndex);

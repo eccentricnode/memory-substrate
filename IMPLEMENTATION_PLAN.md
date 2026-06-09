@@ -2,19 +2,16 @@
 
 - P0 — Memory research sub-agent (read-side mediator). NEW.
   - Spec: `specs/11-memory-research-subagent.md` (read it first — it cites the patterns to mirror).
-  - Goal: an agent-callable tool `memory_research(question)` + a `/memory-research <question>` command that spawn a recursion-guarded, READ-ONLY pi sub-agent to rg/read `PI_MEMORY_ROOT` and return only a synthesis + citations — keeping the main session unpolluted.
-  - Mirror: `worker.ts` spawn (node:child_process, `PI_MEMORY_ENABLED=0`, provider-qualified codex model, NOT `pi.exec`); register the command like `index.ts:269-323`. Tool half needs pi's extension-tool API (not yet used here — reference pi SDK).
-  - Differs from worker: needs read+search tools (not `--no-tools`), so enforce read-only (no write/edit) confinement — this sub-agent is more privileged than the worker.
-  - Backpressure: mock the spawn (inject a fake runner like the worker tests); cover recursion-guard env, read-only args, model preflight, synthesis+citations parse, `found:false` miss path, disabled/ignore gates. Opt-in live test beside `tests/pi-dev-live-integration.test.ts`. `bunx tsc --noEmit && bun test` green.
-  - Increments: (1) shared `researchMemory` orchestrator + mocked-spawn tests; (2) `/memory-research` command via registerCommand; (3) agent-callable tool via pi tool API; (4) read-only confinement + recursion guard hardening; (5) opt-in live test + docs.
+  - Status: implementation slice complete; remaining P0 work is concise follow-through only.
+  - Remaining: add opt-in live research test and docs if still not done.
 
 - P1 — Prompt fallback block length.
-  - Status: open; SPEC §3.5 caps prompt-bakeable write protocol blocks at 80 lines, while `adapters/pi-dev/memory-protocol.md` is currently over that cap.
+  - Status: open; `adapters/pi-dev/memory-protocol.md` is 87 lines, exceeding SPEC §3.5's <=80-line prompt-bakeable cap.
   - Plan: compress the fallback protocol without dropping disabled/ignore/dry-run, two-step save, dedupe, exclusions, validation, and read-verification requirements.
   - Plan: add a simple line-count regression or documented check so future protocol edits do not drift past the cap.
 
 - P1 — Live worker prompt must carry the full write protocol.
-  - Status: open; spec review found the live worker prompt currently references “SPEC section 3” but does not enumerate the full trigger table, exclusions, dedupe/update rules, stale-correction rule, and two-step save importance.
+  - Status: open; `liveWorkerPrompt` in `adapters/pi-dev/extension/worker.ts` still says "SPEC section 3" instead of carrying the explicit trigger, exclusion, dedupe, stale-correction, and two-step rules.
   - Why it matters: the live worker is the forced-write decision surface; assuming it already knows the spec weakens recall of explicit remembers, corrections, confirmed approaches, preferences, project context, and external pointers.
   - Plan: expand the worker prompt with the compact §3.1-§3.4 protocol while keeping the prompt bounded, and add regression coverage that the prompt contains the durable-trigger/exclusion cues.
 
@@ -48,6 +45,7 @@
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - P0 memory research first implementation slice is complete: shared `researchMemory` orchestrator, `/memory-research` command, `memory_research` tool registration, recursion guard env, read-only tool allowlist, model preflight, and mocked subprocess tests for found/not-found/disabled/ignore/model errors. Full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 110 pass, 7 skip, 0 fail, 117 tests across 10 files.
   - Worker dedupe now only trusts validator-conformant nested `metadata.type`, so flat top-level `type:` frontmatter cannot masquerade as typed topic metadata during snapshot/dedupe decisions. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.
   - Delete drafts now require valid indexed topic memories, preventing deletion of unindexed markdown files or files with invalid/missing topic frontmatter under the memory root. Focused `bun test tests/worker-write.test.ts` passed with 32 pass, 0 fail, and the full green gate passed in one test process: `bunx tsc --noEmit && bun test` -> 104 pass, 7 skip, 0 fail, 111 tests across 9 files.
   - Dry-run now applies proposed changes to a temporary copy of the memory root, runs the reference validator before printing proposed stdout, deletes the temporary root, and leaves the real root unchanged. Regression coverage proves a validator-only broken-link proposal fails dry-run without writing topic/index changes; focused `bun test tests/worker-write.test.ts tests/lifecycle-and-worker.test.ts tests/validate-command.test.ts` passed with 57 pass, 0 fail, and the full green gate passed via one test subagent: `bunx tsc --noEmit && bun test` -> 101 pass, 7 skip, 0 fail, 108 tests across 9 files.
