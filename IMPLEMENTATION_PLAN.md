@@ -1,5 +1,12 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
+- P0 — Reactive memory trigger (event-driven read). NEW.
+  - Spec: `specs/12-reactive-memory-trigger.md` (read it first — it cites spec 11 + the worker pattern to mirror).
+  - Goal: on `before_agent_start`, a CHEAP gate (recall-intent cues + existing index-overlap ranking — NO model call, NO SFPAI dependency) decides if the turn needs durable memory; if so, auto-fire `researchMemory` (spec 11) in its recursion-guarded sub-context and inject the bounded synthesis (superseding plain index injection). The push complement to spec 11's pull tool — the read-side mirror of the write-worker's `agent_end` reactivity.
+  - Opt-in, default OFF (e.g. `PI_MEMORY_REACTIVE=1`); honors disabled/ignore/dry-run; at most one fire per turn; bounded injection.
+  - Backpressure: mock the gate + `researchMemory`; test fires-on-cues, fires-on-overlap, skips-on-neither, gated-in supersedes index injection, gated-out index-only, found:false injects nothing, flag-off unchanged, disabled/ignore/dry-run honored, one-fire-per-turn. Opt-in live test. `bunx tsc --noEmit && bun test` green.
+  - Increments: (1) gate (cue + overlap) as a pure, tested function; (2) wire it into `before_agent_start` behind the opt-in flag, gated-out = today's behavior; (3) gated-in fires `researchMemory` + bounded synthesis injection superseding index lines; (4) disabled/ignore/dry-run + one-fire-per-turn hardening; (5) opt-in live test + docs.
+
 - P1 — Worker runner injection is a trust boundary.
   - Status: open; custom `MemoryWorkerRunner.supportsEnv` is runner-declared, and injected runners can bypass applicator/write confinement unless they use `worker.ts`.
   - Plan: narrow the injected runner contract so untrusted runners cannot perform direct memory writes, and make env-recursion support and applicator-only writes mechanically enforced or test-stub-only.
