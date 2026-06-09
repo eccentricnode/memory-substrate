@@ -19,6 +19,9 @@ The extension:
   `reference/validator.ts`.
 - Registers `/memory-status`, `/memory-validate`, `/memory-flush`, and
   `/memory-refresh`.
+- Registers `/memory-research <question>` and the `memory_research` tool. These spawn a
+  read-only pi sub-agent with `PI_MEMORY_ENABLED=0`, search/read tools only, and return a
+  synthesis with citations instead of loading raw memory files into the main session.
 
 The worker default model is `openai-codex/gpt-5.3-codex-spark`; set `PI_MEMORY_MODEL`
 to override it with another reachable provider-qualified model. The live worker preflights
@@ -45,6 +48,7 @@ PI_MEMORY_IGNORE=1        # ignore mode: no injection or writes for the session
 PI_MEMORY_DRY_RUN=1       # worker proposes paths/changes without writing
 PI_MEMORY_ROOT=~/.memory  # memory root; relative paths resolve against pi cwd
 PI_MEMORY_MODEL=openai-codex/gpt-5.3-codex-spark
+PI_MEMORY_RESEARCH_MODEL=openai-codex/gpt-5.3-codex-spark
 PI_MEMORY_DEBOUNCE_MS=3000
 PI_MEMORY_MAX_BATCH_ITEMS=8
 ```
@@ -71,7 +75,8 @@ bunx tsc --noEmit && bun test
 
 Run the real pi.dev integration harness only when you intentionally want paid/live model
 verification. It loads the extension with `--no-tools` against disposable memory and
-session roots, then checks durable, chatter, disabled, dry-run, and bad-model behavior.
+session roots, then checks durable, chatter, disabled, dry-run, bad-model, and
+`/memory-research` read-only behavior.
 
 ```bash
 bun run test:pi-live

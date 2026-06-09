@@ -55,6 +55,7 @@ interface LivePiRun {
   cwd: string;
   homeDir: string;
   memoryRoot: string;
+  memoryRootBefore: FsSnapshot;
   sessionFile: string;
   result: ProcessResult;
   entries: SessionEntry[];
@@ -73,9 +74,12 @@ function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-function createMemoryRoot(): string {
+function createMemoryRoot(
+  seed?: (memoryRoot: string) => void,
+): string {
   const root = tempDir("memory-substrate-live-root-");
   writeFileSync(join(root, "MEMORY.md"), "# Memory\n");
+  seed?.(root);
   return root;
 }
 
@@ -237,9 +241,11 @@ function cleanProcessEnv(): Record<string, string> {
 async function runLivePi(
   prompt: string,
   env: Record<string, string | undefined> = {},
+  seedMemory?: (memoryRoot: string) => void,
 ): Promise<LivePiRun> {
   const cwd = tempDir("memory-substrate-live-cwd-");
-  const memoryRoot = createMemoryRoot();
+  const memoryRoot = createMemoryRoot(seedMemory);
+  const memoryRootBefore = snapshotPath(memoryRoot);
   const sessionFile = join(tempDir("memory-substrate-live-session-"), "session.jsonl");
   const tempHome = tempDir("memory-substrate-live-home-");
   const sessionDir = dirname(sessionFile);
@@ -284,6 +290,7 @@ async function runLivePi(
     cwd,
     homeDir: tempHome,
     memoryRoot,
+    memoryRootBefore,
     sessionFile,
     result,
     entries: parseSessionEntries(sessionFile),
@@ -294,6 +301,27 @@ function expectPiSuccess(run: LivePiRun): void {
   expect(
     `${PI_COMMAND} exited ${run.result.code}\nstdout:\n${run.result.stdout}\nstderr:\n${run.result.stderr}`,
   ).toContain(`${PI_COMMAND} exited 0`);
+}
+
+function seedResearchMemory(root: string): void {
+  writeFileSync(
+    join(root, "project_live-research-build-command.md"),
+    `---
+name: live-research-build-command
+description: Live research should find the Bun verification command
+metadata:
+  type: project
+---
+
+The durable live-research verification command is \`bunx tsc --noEmit && bun test\`.
+**Why:** This proves the read-side sub-agent can synthesize from a topic file.
+**How to apply:** Cite this topic when asked about live-research verification.
+`,
+  );
+  writeFileSync(
+    join(root, "MEMORY.md"),
+    "# Memory\n\n- [Live research build command](project_live-research-build-command.md) — Live research should cite the Bun verification command\n",
+  );
 }
 
 function expectNoOutOfRootAuditPaths(run: LivePiRun): void {
@@ -495,6 +523,32 @@ liveDescribe("opt-in live pi.dev memory integration", () => {
         expect(String(records[0]?.error ?? "").length).toBeGreaterThan(0);
         expect(String(records[0]?.error ?? "")).not.toContain("pi --list-models");
         expectNoOutOfRootAuditPaths(run);
+      } finally {
+        expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));
+        cleanup(run);
+      }
+    },
+    LIVE_TIMEOUT_MS + 30_000,
+  );
+
+  test(
+    "memory-research command reads seeded memory without mutating it",
+    async () => {
+      const defaultRootBefore = snapshotPath(DEFAULT_MEMORY_ROOT);
+      const run = await runLivePi(
+        "/memory-research What verification command does live research memory require?",
+        {},
+        seedResearchMemory,
+      );
+      try {
+        expectPiSuccess(run);
+        expect(`${run.result.stdout}\n${run.result.stderr}`).toContain(
+          "project_live-research-build-command.md",
+        );
+        expect(`${run.result.stdout}\n${run.result.stderr}`).toMatch(/bun/i);
+        expectSnapshotUnchanged(run.memoryRootBefore, snapshotPath(run.memoryRoot));
+        expect(workerRecords(run)).toEqual([]);
+        expect(queueRecords(run)).toEqual([]);
       } finally {
         expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));
         cleanup(run);
