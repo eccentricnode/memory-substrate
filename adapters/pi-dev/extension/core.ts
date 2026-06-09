@@ -1,4 +1,15 @@
-import { isAbsolute, join, resolve, sep } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolveRuntimeConfig, type RuntimeConfig, type RuntimeEnv } from "./config.ts";
 import {
   compactMemoryDirectory,
@@ -22,6 +33,7 @@ import {
 } from "./research.ts";
 import {
   buildWorkerEnv,
+  isApplicatorOwnedWorkerRunner,
   outputTail,
   runReferenceValidator,
   type MemoryBatchItem,
@@ -211,6 +223,13 @@ interface WorkerBatchOutcome {
   failureClass?: WorkerAuditRecord["failureClass"];
 }
 
+type MemoryRootSnapshotEntry =
+  | { kind: "directory" }
+  | { kind: "file"; content: Buffer }
+  | { kind: "symlink"; target: string };
+
+type MemoryRootSnapshot = Map<string, MemoryRootSnapshotEntry>;
+
 function defaultScheduler(): MemoryScheduler {
   return {
     setTimeout: (callback, ms) => setTimeout(callback, ms),
@@ -265,6 +284,105 @@ function auditPayloadSummary(value: unknown): AuditPayloadSummary | undefined {
     preview = `${preview.slice(0, AUDIT_PREVIEW_CAP - 3).trimEnd()}...`;
   }
   return { byteLength, preview, truncated };
+}
+
+function sortedSnapshotPaths(snapshot: MemoryRootSnapshot): string[] {
+  return [...snapshot.keys()].sort((left, right) => {
+    const depth = left.split(sep).length - right.split(sep).length;
+    if (depth !== 0) return depth;
+    return left.localeCompare(right);
+  });
+}
+
+function takeMemoryRootSnapshot(root: string): MemoryRootSnapshot {
+  const snapshot: MemoryRootSnapshot = new Map();
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      const key = relative(root, path);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) {
+        snapshot.set(key, { kind: "symlink", target: readlinkSync(path) });
+      } else if (stat.isDirectory()) {
+        snapshot.set(key, { kind: "directory" });
+        walk(path);
+      } else if (stat.isFile()) {
+        snapshot.set(key, { kind: "file", content: readFileSync(path) });
+      } else {
+        snapshot.set(key, { kind: "file", content: readFileSync(path) });
+      }
+    }
+  };
+  walk(root);
+  return snapshot;
+}
+
+function memoryRootSnapshotChanged(
+  before: MemoryRootSnapshot,
+  after: MemoryRootSnapshot,
+): boolean {
+  if (before.size !== after.size) return true;
+  for (const [path, beforeEntry] of before) {
+    const afterEntry = after.get(path);
+    if (!afterEntry || afterEntry.kind !== beforeEntry.kind) return true;
+    if (
+      beforeEntry.kind === "file" &&
+      afterEntry.kind === "file" &&
+      !beforeEntry.content.equals(afterEntry.content)
+    ) {
+      return true;
+    }
+    if (
+      beforeEntry.kind === "symlink" &&
+      afterEntry.kind === "symlink" &&
+      beforeEntry.target !== afterEntry.target
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function restoreMemoryRootSnapshot(
+  root: string,
+  snapshot: MemoryRootSnapshot,
+): void {
+  const current = takeMemoryRootSnapshot(root);
+  const currentPaths = sortedSnapshotPaths(current).reverse();
+  for (const path of currentPaths) {
+    if (!snapshot.has(path)) {
+      rmSync(join(root, path), { force: true, recursive: true });
+    }
+  }
+
+  for (const path of sortedSnapshotPaths(snapshot)) {
+    const entry = snapshot.get(path);
+    if (!entry) continue;
+    const absolutePath = join(root, path);
+    if (entry.kind === "directory") {
+      if (existsSync(absolutePath) && !lstatSync(absolutePath).isDirectory()) {
+        rmSync(absolutePath, { force: true, recursive: true });
+      }
+      mkdirSync(absolutePath, { recursive: true });
+      continue;
+    }
+
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    if (existsSync(absolutePath)) {
+      const stat = lstatSync(absolutePath);
+      const matchingSymlink = entry.kind === "symlink" && stat.isSymbolicLink();
+      const matchingFile = entry.kind === "file" && stat.isFile();
+      if (!matchingSymlink && !matchingFile) {
+        rmSync(absolutePath, { force: true, recursive: true });
+      }
+    }
+    if (entry.kind === "file") {
+      writeFileSync(absolutePath, entry.content);
+    } else {
+      if (existsSync(absolutePath)) rmSync(absolutePath, { force: true });
+      symlinkSync(entry.target, absolutePath);
+    }
+  }
 }
 
 function compactEventMessages(event: SessionBeforeCompactEvent): unknown[] {
@@ -813,7 +931,32 @@ export class MemoryExtensionCore {
     };
 
     try {
+      const applicatorOwned = isApplicatorOwnedWorkerRunner(this.worker);
+      const beforeSnapshot = applicatorOwned
+        ? undefined
+        : takeMemoryRootSnapshot(memoryRoot);
       const result = await this.worker.run(request);
+      if (beforeSnapshot) {
+        const afterSnapshot = takeMemoryRootSnapshot(memoryRoot);
+        if (memoryRootSnapshotChanged(beforeSnapshot, afterSnapshot)) {
+          restoreMemoryRootSnapshot(memoryRoot, beforeSnapshot);
+          const error =
+            "worker run failed: injected worker runner mutated the memory root; writes must be applied by the memory-substrate applicator";
+          const refused: MemoryWorkerResult = {
+            exitCode: 1,
+            stderr: error,
+            changedPaths: [],
+            proposedPaths: [],
+          };
+          this.recordWorkerResult(batchId, reason, items, refused, this.queue.length);
+          return {
+            status: "failed",
+            itemCount: items.length,
+            error,
+            failureClass: "failed",
+          };
+        }
+      }
       this.recordWorkerResult(
         batchId,
         reason,

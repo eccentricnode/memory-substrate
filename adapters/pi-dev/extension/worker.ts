@@ -57,6 +57,19 @@ export interface MemoryWorkerRunner {
   run(request: MemoryWorkerRequest): Promise<MemoryWorkerResult>;
 }
 
+const applicatorOwnedWorkerRunners = new WeakSet<MemoryWorkerRunner>();
+
+function markApplicatorOwnedWorkerRunner<T extends MemoryWorkerRunner>(runner: T): T {
+  applicatorOwnedWorkerRunners.add(runner);
+  return runner;
+}
+
+export function isApplicatorOwnedWorkerRunner(
+  runner: MemoryWorkerRunner | undefined,
+): boolean {
+  return runner !== undefined && applicatorOwnedWorkerRunners.has(runner);
+}
+
 export type MemoryDraftAction = "upsert" | "delete";
 
 export interface MemoryWriteDraft {
@@ -1574,7 +1587,7 @@ export async function applyMemoryWriteDrafts(
 export function createDeterministicMemoryWorkerRunner(
   options: DeterministicMemoryWorkerOptions = {},
 ): MemoryWorkerRunner {
-  return {
+  return markApplicatorOwnedWorkerRunner({
     supportsEnv: true,
     async run(request) {
       try {
@@ -1589,7 +1602,7 @@ export function createDeterministicMemoryWorkerRunner(
         };
       }
     },
-  };
+  });
 }
 
 export function createLivePiMemoryWorkerRunner(
@@ -1599,7 +1612,7 @@ export function createLivePiMemoryWorkerRunner(
   const timeoutMs = options.timeoutMs ?? LIVE_WORKER_TIMEOUT_MS;
   const execProcess = options.process ?? defaultLivePiProcessExecutor;
 
-  return {
+  return markApplicatorOwnedWorkerRunner({
     supportsEnv: true,
     async run(request) {
       const env = childEnv(request.env);
@@ -1654,7 +1667,7 @@ export function createLivePiMemoryWorkerRunner(
         };
       }
     },
-  };
+  });
 }
 
 export const unsupportedPiExecWorkerRunner: MemoryWorkerRunner = {

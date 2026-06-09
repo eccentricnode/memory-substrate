@@ -1,9 +1,5 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P1 — Worker runner injection is a trust boundary.
-  - Status: open; custom `MemoryWorkerRunner.supportsEnv` is runner-declared, and injected runners can bypass applicator/write confinement unless they use `worker.ts`.
-  - Plan: narrow the injected runner contract so untrusted runners cannot perform direct memory writes, and make env-recursion support and applicator-only writes mechanically enforced or test-stub-only.
-
 - P1 — Research subprocess root-only guarantees are prompt/tool mediated.
   - Status: open; read-only/root-only enforcement still relies on pi tool allowlist plus prompt instructions rather than a sandbox.
   - Plan: add a mechanical root-only/read-only boundary or explicit fail-closed behavior when it cannot be enforced.
@@ -38,6 +34,7 @@
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - P1 worker runner injection trust boundary is resolved: built-in deterministic/live runners are applicator-owned, while unmarked injected runners run behind a memory-root snapshot/restore guard that fails and retains the queue if they mutate the root directly. `tests/lifecycle-and-worker.test.ts` matters because it proves even a `supportsEnv` injected runner cannot bypass the applicator; direct writes are rolled back.
   - Provider-qualified worker/research model validation now lives in runtime config/status paths before root discovery, flush, or research subprocess launch, so malformed model config fails early without touching memory roots or spawning workers. Focused tests matter because they pin config injection, lifecycle/flush, research, and validate-command behavior around that fail-closed boundary; focused `bun test tests/config-and-injection.test.ts tests/lifecycle-and-worker.test.ts tests/memory-research.test.ts tests/validate-command.test.ts` passed with 63 pass, 0 fail, and full gate `bunx tsc --noEmit && bun test` passed with 128 pass, 9 skip, 0 fail across 11 files.
   - P1 prompt fallback block length is resolved: `adapters/pi-dev/memory-protocol.md` is now 80 lines, and `tests/memory-protocol.test.ts` pins the <=80-line cap plus critical fallback rules.
   - P1 research citation validation is resolved: `researchMemory` validates returned citations as relative, indexed, existing in-root topic files before surfacing them, and `tests/memory-research.test.ts` covers valid indexed citations plus invalid `../outside.md` fail-closed behavior. Focused verification: `bun test tests/memory-research.test.ts tests/memory-protocol.test.ts` passed with 9 pass, 0 fail, 53 expect() calls. Full green gate via one test subagent: `bunx tsc --noEmit && bun test` passed with 125 pass, 9 skip, 0 fail, 658 expect() calls, 134 tests across 11 files.

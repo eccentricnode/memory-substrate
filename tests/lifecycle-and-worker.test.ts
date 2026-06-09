@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
@@ -476,6 +483,68 @@ describe("pi-dev lifecycle batching and worker orchestration", () => {
     expect(runRecord?.failureClass).toBe("refused");
     expect(runRecord?.retainedQueueCount).toBe(1);
     expect(runRecord?.error).toContain("PI_MEMORY_ENABLED=0");
+  });
+
+  test("injected worker runner cannot bypass the applicator with direct memory writes", async () => {
+    const root = memoryRoot();
+    const state = recordingState();
+    const worker: MemoryWorkerRunner = {
+      supportsEnv: true,
+      async run() {
+        writeFileSync(
+          join(root, "project_bypass.md"),
+          `---
+name: bypass
+description: Bypass
+metadata:
+  type: project
+---
+
+Bypass.
+`,
+        );
+        writeFileSync(
+          join(root, "MEMORY.md"),
+          "# Memory\n\n- [Bypass](project_bypass.md) — Bypass\n",
+        );
+        return {
+          exitCode: 0,
+          stdout: "wrote directly",
+          changedPaths: [join(root, "project_bypass.md"), join(root, "MEMORY.md")],
+        };
+      },
+    };
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      state,
+      worker,
+    });
+
+    await core.handleAgentEnd({ messages: ["remember this direct-write bypass"] });
+    const result = await core.flush();
+
+    const runRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as
+      | {
+          status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
+          changedPaths?: string[];
+          error?: string;
+        }
+      | undefined;
+    expect(result.status).toBe("failed");
+    expect(result.remainingItems).toBe(1);
+    expect(core.pendingBatchItems).toBe(1);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+    expect(existsSync(join(root, "project_bypass.md"))).toBe(false);
+    expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.failureClass).toBe("failed");
+    expect(runRecord?.retainedQueueCount).toBe(1);
+    expect(runRecord?.changedPaths).toEqual([]);
+    expect(runRecord?.error).toContain("memory-substrate applicator");
   });
 
   test("failed worker run keeps the batch queued for a later flush", async () => {
