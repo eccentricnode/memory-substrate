@@ -8,6 +8,7 @@ import {
   type MemoryResearchProcessExecutor,
   type MemoryResearchProcessOptions,
 } from "../adapters/pi-dev/extension/research.ts";
+import memoryResearchTools from "../adapters/pi-dev/extension/research-tools.ts";
 import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 
 const tmpRoots: string[] = [];
@@ -116,17 +117,21 @@ describe("memory research sub-agent", () => {
     expect(call?.options.env.PI_MEMORY_ENABLED).toBe("0");
     expect(call?.options.env.PI_MEMORY_ROOT).toBe(root);
     expect(call?.args).toContain("--print");
+    expect(call?.args).toContain("--no-builtin-tools");
     expect(call?.args).toContain("--no-extensions");
+    expect(call?.args).toContain("--extension");
+    expect(call?.args.join("\n")).toContain("research-tools.ts");
     expect(call?.args).toContain("--no-context-files");
     expect(call?.args).toContain("--no-skills");
     expect(call?.args).toContain("--no-prompt-templates");
     expect(call?.args).toContain("--no-session");
     expect(call?.args).toContain("--tools");
-    expect(call?.args).toContain("read,grep,find,ls");
+    expect(call?.args).toContain("memory_index,memory_read,memory_grep,memory_list");
+    expect(call?.args).not.toContain("read,grep,find,ls");
     expect(call?.args).not.toContain("--no-tools");
     expect(call?.args.join("\n")).not.toContain("write,edit");
     expect(call?.args).toContain(DEFAULT_WORKER_MODEL);
-    expect(call?.args.at(-1)).toContain("Do not write, edit, delete, move, or create files.");
+    expect(call?.args.at(-1)).toContain("These tools reject paths");
   });
 
   test("fails closed when research returns citations outside indexed topic files", async () => {
@@ -222,6 +227,58 @@ describe("memory research sub-agent", () => {
     expect(disabled.status).toBe("disabled");
     expect(ignored.status).toBe("ignored");
     expect(process.calls).toHaveLength(0);
+  });
+});
+
+describe("root-confined memory research tools", () => {
+  test("read/search tools only expose markdown files inside PI_MEMORY_ROOT", async () => {
+    const root = memoryRoot();
+    const outside = tempDir();
+    writeFileSync(join(outside, "outside.md"), "outside secret\n");
+    writeTopic(root, "project_bun.md", "bun", "Bun is required");
+    process.env.PI_MEMORY_ROOT = root;
+    const tools = new Map<
+      string,
+      {
+        execute(
+          toolCallId: string,
+          params: unknown,
+          signal: unknown,
+          onUpdate: unknown,
+          ctx: unknown,
+        ): Promise<{ content: Array<{ type: "text"; text: string }>; details: unknown }>;
+      }
+    >();
+
+    memoryResearchTools({
+      registerTool(definition) {
+        tools.set(definition.name, definition);
+      },
+    });
+
+    const index = await tools
+      .get("memory_index")
+      ?.execute("tool-1", {}, undefined, undefined, {});
+    const grep = await tools
+      .get("memory_grep")
+      ?.execute("tool-2", { pattern: "Bun" }, undefined, undefined, {});
+    const read = await tools
+      .get("memory_read")
+      ?.execute("tool-3", { path: "project_bun.md" }, undefined, undefined, {});
+
+    expect(index?.content[0]?.text).toContain("project_bun.md");
+    expect(grep?.content[0]?.text).toContain("project_bun.md");
+    expect(read?.content[0]?.text).toContain("Bun is required");
+    await expect(
+      tools
+        .get("memory_read")
+        ?.execute("tool-4", { path: "../outside.md" }, undefined, undefined, {}),
+    ).rejects.toThrow("escapes PI_MEMORY_ROOT");
+    await expect(
+      tools
+        .get("memory_read")
+        ?.execute("tool-5", { path: join(outside, "outside.md") }, undefined, undefined, {}),
+    ).rejects.toThrow("must be relative");
   });
 });
 

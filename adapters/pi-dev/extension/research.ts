@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { resolveRuntimeConfig, type RuntimeEnv } from "./config.ts";
 import { RECURSION_GUARD_ENV } from "./worker.ts";
@@ -49,6 +50,8 @@ export interface MemoryResearchOptions {
 const RESEARCH_TIMEOUT_MS = 120_000;
 const RESEARCH_REACHABILITY_PROMPT =
   "Memory research model reachability check. Reply exactly: OK";
+const RESEARCH_TOOL_EXTENSION = fileURLToPath(new URL("./research-tools.ts", import.meta.url));
+const RESEARCH_TOOL_NAMES = "memory_index,memory_read,memory_grep,memory_list";
 
 function childEnv(requestEnv: RuntimeEnv): Record<string, string> {
   const env: Record<string, string> = {};
@@ -122,13 +125,16 @@ function defaultResearchProcessExecutor(
 function researchProcessArgs(model: string, prompt: string): string[] {
   return [
     "--print",
+    "--no-builtin-tools",
     "--no-extensions",
+    "--extension",
+    RESEARCH_TOOL_EXTENSION,
     "--no-context-files",
     "--no-skills",
     "--no-prompt-templates",
     "--no-session",
     "--tools",
-    "read,grep,find,ls",
+    RESEARCH_TOOL_NAMES,
     "--model",
     model,
     prompt,
@@ -166,8 +172,9 @@ Answer the memory question by searching and reading only this memory root:
 ${memoryRoot}
 
 Use MEMORY.md as the index. Follow relative markdown links to relevant topic files.
-Use read, grep, find, or ls only. Do not write, edit, delete, move, or create files.
-Do not inspect files outside the memory root. If there is no matching memory, say so.
+Use only memory_index, memory_read, memory_grep, and memory_list. These tools reject paths
+outside the memory root. Do not write, edit, delete, move, or create files. If there is no
+matching memory, say so.
 
 Return exactly one JSON object with no markdown fences or commentary:
 {"found":true,"answer":"short synthesis","citations":["relative-topic.md"]}
