@@ -15,6 +15,7 @@ import { DEFAULT_WORKER_MODEL } from "../adapters/pi-dev/extension/config.ts";
 import { MemoryExtensionCore } from "../adapters/pi-dev/extension/core.ts";
 import {
   createDeterministicMemoryWorkerRunner,
+  type MemoryWriteStep,
   type MemoryWorkerRequest,
 } from "../adapters/pi-dev/extension/worker.ts";
 
@@ -467,6 +468,79 @@ Historical flat frontmatter should not steer worker dedupe.
       path.endsWith("project_stale-rule.md"),
     )).toBe(true);
     expect(result.validator?.exitCode).toBe(0);
+  });
+
+  test("multiple upserts commit topic and index as exact two-step writes", async () => {
+    const root = memoryRoot();
+    const steps: MemoryWriteStep[] = [];
+    const worker = createDeterministicMemoryWorkerRunner({
+      observeWriteStep: (step) => steps.push(step),
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "first-two-step-write",
+          description: "first two-step write",
+          body:
+            "first two-step write\n\n**Why:** The applicator must complete each proposal's index route before starting the next proposal.\n\n**How to apply:** Preserve topic then pointer ordering for each upsert.",
+          hook: "first two-step write",
+          title: "First two-step write",
+          relativePath: "project_first-two-step-write.md",
+        },
+        {
+          type: "project",
+          name: "second-two-step-write",
+          description: "second two-step write",
+          body:
+            "second two-step write\n\n**Why:** Batched topic writes can leave topic-only interruption windows.\n\n**How to apply:** Write the MEMORY.md pointer immediately after its topic file.",
+          hook: "second two-step write",
+          title: "Second two-step write",
+          relativePath: "project_second-two-step-write.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is exact two-step ordering."),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(steps.map((step) => `${step.draftAction}:${step.action}:${step.relativePath}`)).toEqual([
+      "upsert:write-topic:project_first-two-step-write.md",
+      "upsert:write-index:MEMORY.md",
+      "upsert:write-topic:project_second-two-step-write.md",
+      "upsert:write-index:MEMORY.md",
+    ]);
+    const index = readFileSync(join(root, "MEMORY.md"), "utf8");
+    expect(index).toContain("project_first-two-step-write.md");
+    expect(index).toContain("project_second-two-step-write.md");
+  });
+
+  test("delete commits index removal before topic removal", async () => {
+    const root = memoryRoot();
+    writeExistingMemory(root);
+    const steps: MemoryWriteStep[] = [];
+    const worker = createDeterministicMemoryWorkerRunner({
+      observeWriteStep: (step) => steps.push(step),
+      decideWrites: () => [
+        {
+          action: "delete",
+          relativePath: "project_stale-rule.md",
+          description: "delete ordering",
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "Correction: stale rule is wrong."));
+
+    expect(result.exitCode).toBe(0);
+    expect(steps.map((step) => `${step.draftAction}:${step.action}:${step.relativePath}`)).toEqual([
+      "delete:write-index:MEMORY.md",
+      "delete:delete-topic:project_stale-rule.md",
+    ]);
+    expect(existsSync(join(root, "project_stale-rule.md"))).toBe(false);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).not.toContain(
+      "project_stale-rule.md",
+    );
   });
 
   test("delete dry-run reports proposed removal and writes nothing", async () => {

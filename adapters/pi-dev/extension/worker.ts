@@ -86,6 +86,7 @@ export interface MemoryWriteDraft {
 export interface DeterministicMemoryWorkerOptions {
   decideWrites?: (request: MemoryWorkerRequest) => MemoryWriteDraft[];
   validate?: (memoryRoot: string) => Promise<MemoryValidationResult>;
+  observeWriteStep?: (step: MemoryWriteStep) => void;
 }
 
 export interface LivePiProcessOptions {
@@ -620,6 +621,12 @@ type MemoryChangePlan = UpsertWritePlan | DeleteWritePlan;
 interface FileSnapshot {
   existed: boolean;
   content?: string;
+}
+
+export interface MemoryWriteStep {
+  action: "write-topic" | "write-index" | "delete-topic";
+  draftAction: MemoryDraftAction;
+  relativePath: string;
 }
 
 function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
@@ -1436,7 +1443,10 @@ export async function runReferenceValidator(
 export async function applyMemoryWriteDrafts(
   request: MemoryWorkerRequest,
   drafts: MemoryWriteDraft[],
-  options: Pick<DeterministicMemoryWorkerOptions, "validate"> = {},
+  options: Pick<
+    DeterministicMemoryWorkerOptions,
+    "validate" | "observeWriteStep"
+  > = {},
 ): Promise<MemoryWorkerResult> {
   const normalized = drafts.map(normalizeDraft);
   if (normalized.length === 0) {
@@ -1539,16 +1549,47 @@ export async function applyMemoryWriteDrafts(
   }
 
   try {
+    let currentIndex = readFileSync(indexPath, "utf8");
     for (const item of changePlan) {
       if (item.action === "upsert") {
         mkdirSync(dirname(item.topicPath), { recursive: true });
         writeFileSync(item.topicPath, renderTopic(item.draft));
+        options.observeWriteStep?.({
+          action: "write-topic",
+          draftAction: item.action,
+          relativePath: item.topicRelativePath,
+        });
+        currentIndex = upsertIndexContent(
+          currentIndex,
+          item.topicRelativePath,
+          item.draft,
+        );
+        writeFileSync(indexPath, currentIndex);
+        options.observeWriteStep?.({
+          action: "write-index",
+          draftAction: item.action,
+          relativePath: "MEMORY.md",
+        });
       } else {
+        currentIndex = removeIndexPointers(currentIndex, item.topicRelativePath);
+        writeFileSync(indexPath, currentIndex);
+        options.observeWriteStep?.({
+          action: "write-index",
+          draftAction: item.action,
+          relativePath: "MEMORY.md",
+        });
         rmSync(item.topicPath, { force: true });
+        options.observeWriteStep?.({
+          action: "delete-topic",
+          draftAction: item.action,
+          relativePath: item.topicRelativePath,
+        });
       }
       changedPaths.add(item.topicPath);
     }
-    writeFileSync(indexPath, nextIndex);
+    if (currentIndex !== nextIndex) {
+      throw new Error("memory index application order diverged from planned result");
+    }
     changedPaths.add(indexPath);
 
     const validator = await (options.validate ?? runReferenceValidator)(

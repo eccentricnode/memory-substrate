@@ -4,10 +4,6 @@
   - Status: open; prompt-triggered ignore mode has no explicit operator command/path to clear it within the session.
   - Plan: define and implement a clear/resume command or prompt phrase, with audit output proving when memory remains ignored versus re-enabled.
 
-- P2 — Exact per-write two-step ordering.
-  - Status: open; spec review noted the applicator writes all topic files in a batch and then writes the index once. Rollback protects validation failures, but a process interruption between those steps can still leave incomplete topic-only writes.
-  - Plan: decide whether batched atomic application is acceptable for this adapter or change application to topic+index per memory with tests documenting interruption/rollback behavior.
-
 - P2 — Worker draft action naming compatibility.
   - Status: open; `specs/08` describes create-or-update proposals while implementation uses `action: "upsert"` as the JSON contract.
   - Plan: either document `upsert` as the concrete wire value in the spec or accept `create-or-update` as an alias without weakening malformed-action refusal.
@@ -20,7 +16,20 @@
   - Status: open; specs require worker timeouts to be failed retained runs and items arriving during an in-flight run to wait for the next run, but current tests do not directly pin those edges.
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
+- P2 — Reference validator slug/name enforcement.
+  - Status: open from read-only review; validator does not yet enforce kebab-case topic slugs or duplicate topic names after slug normalization.
+  - Plan: add validator coverage and failures for non-kebab filenames/slugs and duplicate normalized topic names without reimplementing spec logic elsewhere.
+
+- P3 — Reference frontmatter parser completeness.
+  - Status: open from read-only review; frontmatter parsing is regex/manual and may diverge from YAML-complete behavior.
+  - Plan: decide whether to adopt a YAML parser or explicitly document the supported subset, then pin edge cases in reference tests.
+
+- P3 — Reference markdown link validation coverage.
+  - Status: open from read-only review; markdown link validation misses some valid link forms.
+  - Plan: expand parser/test coverage for additional markdown link forms while preserving root confinement and index/topic existence checks.
+
 - Completed — Core pi-dev forced-write surface.
+  - P2 exact per-write two-step ordering is resolved: applicator still preflights the final index/caps atomically, but live mutation now applies each proposal in spec order; upserts write the topic then the `MEMORY.md` pointer before the next proposal, deletes remove the `MEMORY.md` pointer before deleting the topic, and validation rollback still restores snapshots. The tests matter because they pin interruption-visible ordering for both upsert and delete paths while preserving rollback behavior. Focused `bun test tests/worker-write.test.ts` passed with 36 pass, 0 fail; full green gate `bunx tsc --noEmit && bun test` passed with 134 pass, 9 skip, 0 fail.
   - Compactor parser alignment is resolved: `reference/compactor.ts` now only trusts nested valid `metadata.type` for grouping; flat top-level `type` and invalid nested `metadata.type` remain surfaced through validator findings but group as Uncategorized. Focused verification: `bun test tests/reference-compactor.test.ts tests/reference-validator.test.ts` passed with 11 pass, 0 fail.
   - `/memory-flush` now distinguishes successful no-write runs from write-changing success through the core `memoryChanges` result, with command regressions pinning both user-visible outcomes so future status/output changes cannot collapse them back together. Latest verification: `bun test tests/validate-command.test.ts` passed with 17 pass, 0 fail; `bunx tsc --noEmit && bun test` passed with type-check passed, 131 pass, 9 skip, 0 fail.
   - P1 worker runner injection trust boundary is resolved: built-in deterministic/live runners are applicator-owned, while unmarked injected runners run behind a memory-root snapshot/restore guard that fails and retains the queue if they mutate the root directly. `tests/lifecycle-and-worker.test.ts` matters because it proves even a `supportsEnv` injected runner cannot bypass the applicator; direct writes are rolled back.
