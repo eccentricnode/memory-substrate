@@ -451,6 +451,36 @@ describe("memory injection", () => {
     });
   });
 
+  test("successful index injection happens at most once per session", () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Ralph loop](project_ralph-loop.md) — use one test runner"]);
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+    });
+
+    expect(
+      core.handleBeforeAgentStart({
+        prompt: "Explain CSS layout.",
+        systemPrompt: "base",
+      }),
+    ).toBeUndefined();
+
+    expect(
+      core.handleBeforeAgentStart({
+        prompt: "Use the Ralph loop notes.",
+        systemPrompt: "base",
+      })?.systemPrompt,
+    ).toContain("Durable memory from memory-substrate");
+
+    expect(
+      core.handleBeforeAgentStart({
+        prompt: "Use the Ralph loop notes again.",
+        systemPrompt: "base",
+      }),
+    ).toBeUndefined();
+  });
+
   test("injection is capped at twelve index lines", () => {
     const root = tempDir();
     writeIndex(
@@ -781,7 +811,7 @@ describe("reactive memory trigger", () => {
     });
   });
 
-  test("one reactive turn fires research at most once", async () => {
+  test("reactive injection and research happen at most once per session", async () => {
     const root = tempDir();
     writeIndex(root, ["- [Bun checks](project_bun.md) — overlap sentinel"]);
     const research = recordingResearch(foundResearch());
@@ -791,11 +821,17 @@ describe("reactive memory trigger", () => {
       research,
     });
 
-    await core.handleBeforeAgentStartAsync({
+    const first = await core.handleBeforeAgentStartAsync({
       prompt: "Remember Bun checks?",
       systemPrompt: "base",
     });
+    const second = await core.handleBeforeAgentStartAsync({
+      prompt: "Remember Bun checks again?",
+      systemPrompt: "base",
+    });
 
+    expect(first?.systemPrompt).toContain("Durable memory research");
+    expect(second).toBeUndefined();
     expect(research.calls).toHaveLength(1);
   });
 });

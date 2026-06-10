@@ -15,6 +15,9 @@ purpose of the substrate.
 ### Trigger and surface
 - Relevance is evaluated at the start of an agent turn against the incoming prompt. (Host
   surface: `before_agent_start`, which can inject a message or modify the system prompt.)
+- Model-visible memory is injected at most once per pi.dev session. Prompts with no
+  relevant injection do not consume the session injection allowance; the first successful
+  bounded injection does.
 - For pi.dev, this bounded turn-start injection is the pi-dev binding's adapter-specific
   delivery of SPEC §4.1 bootstrap context, not a substrate-neutral replacement for that
   section. The extension may initialize or cache memory state at session start, but
@@ -43,5 +46,5 @@ purpose of the substrate.
 ## Verification signals
 - A prompt with no term overlap against the index injects nothing.
 - A prompt overlapping a stored topic injects a small, visible, attributed snippet bounded
-  to the size cap.
+  to the size cap only if the session has not already emitted a memory injection.
 - With ignore mode or disabled mode active, no injection occurs regardless of overlap.

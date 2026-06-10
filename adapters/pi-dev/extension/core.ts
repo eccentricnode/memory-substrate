@@ -460,6 +460,7 @@ function renderResearchInjection(result: MemoryResearchResult): MemoryInjection 
 export class MemoryExtensionCore {
   readonly config: RuntimeConfig;
   private ignoreForSession: boolean;
+  private injectedForSession = false;
   private fs?: InjectionFileSystem;
   private worker?: MemoryWorkerRunner;
   private research: MemoryResearchRunner;
@@ -530,6 +531,7 @@ export class MemoryExtensionCore {
       return this.withIgnoreInstruction(event.systemPrompt);
     }
     if (this.ignoreForSession) return this.withIgnoreInstruction(event.systemPrompt);
+    if (this.injectedForSession) return undefined;
 
     return this.renderIndexInjection(event);
   }
@@ -555,6 +557,7 @@ export class MemoryExtensionCore {
       return this.withIgnoreInstruction(event.systemPrompt);
     }
     if (this.ignoreForSession) return this.withIgnoreInstruction(event.systemPrompt);
+    if (this.injectedForSession) return undefined;
     if (!this.config.reactive) return this.renderIndexInjection(event);
 
     const gate = buildReactiveMemoryGate({
@@ -636,6 +639,7 @@ export class MemoryExtensionCore {
     injection: MemoryInjection | undefined,
   ): BeforeAgentStartResult | undefined {
     if (!injection) return undefined;
+    this.injectedForSession = true;
     this.recordInjectionAudit({
       selectedLineCount: injection.selectedLines.length,
       byteLength: Buffer.byteLength(injection.text, "utf8"),
