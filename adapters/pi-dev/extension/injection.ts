@@ -79,6 +79,17 @@ export function matchedIgnoreMemoryRequest(prompt: string): string | undefined {
   return patterns.find(([, pattern]) => pattern.test(normalized))?.[0];
 }
 
+export function matchedResumeMemoryRequest(prompt: string): string | undefined {
+  const normalized = prompt.toLowerCase().replace(/\s+/g, " ").trim();
+  const patterns: Array<[string, RegExp]> = [
+    ["resume memory", /\bresume memor(?:y|ies)\b/],
+    ["use memory again", /\buse memor(?:y|ies) again\b/],
+    ["stop ignoring memory", /\bstop ignoring memor(?:y|ies)\b/],
+    ["clear memory ignore", /\bclear memor(?:y|ies) ignore\b/],
+  ];
+  return patterns.find(([, pattern]) => pattern.test(normalized))?.[0];
+}
+
 export function detectsIgnoreMemoryRequest(prompt: string): boolean {
   return matchedIgnoreMemoryRequest(prompt) !== undefined;
 }

@@ -2,6 +2,7 @@ import type {
   FlushMemoryResult,
   MemoryExtensionCore,
   RefreshMemoryResult,
+  ResumeMemoryResult,
   SessionBeforeCompactEvent,
   ValidateMemoryResult,
 } from "./core.ts";
@@ -243,6 +244,15 @@ function refreshOutputDir(args: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function resumeMessage(result: ResumeMemoryResult): string {
+  if (result.status === "disabled") return "memory resume skipped: disabled";
+  if (result.status === "ignored-by-config") {
+    return "memory remains ignored: PI_MEMORY_IGNORE=1";
+  }
+  if (result.status === "not-ignored") return "memory is already active";
+  return "memory resumed for this session";
+}
+
 function researchLevel(
   result: MemoryResearchResult,
 ): "info" | "warn" | "error" | "success" {
@@ -386,6 +396,21 @@ export default function memorySubstrateExtension(
     },
   });
 
+  pi.registerCommand?.("memory-resume", {
+    description: "Clear prompt-triggered memory ignore mode for this session",
+    handler: (_args, ctx) => {
+      if (memoryDisabled(ctx, options)) {
+        core = undefined;
+        ctx.ui?.notify?.("memory resume skipped: disabled", "info");
+        return;
+      }
+      core ??= createCore(ctx, pi, options);
+      const result = core.resumeMemory("command");
+      ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
+      ctx.ui?.notify?.(resumeMessage(result), "info");
+    },
+  });
+
   pi.registerCommand?.("memory-research", {
     description: "Research durable memory in a read-only sub-agent",
     handler: async (args, ctx) => {
@@ -394,10 +419,9 @@ export default function memorySubstrateExtension(
         ctx.ui?.notify?.("memory research skipped: disabled", "info");
         return;
       }
-      const result = await researchMemory(
-        { question: args, cwd: ctx.cwd, env: process.env },
-        options.research,
-      );
+      core ??= createCore(ctx, pi, options);
+      const result = await core.researchMemory(args);
+      ctx.ui?.setStatus?.("memory-substrate", statusLine(core));
       ctx.ui?.notify?.(researchMessage(result), researchLevel(result));
     },
   });
@@ -429,10 +453,8 @@ export default function memorySubstrateExtension(
           details: { status: "disabled", found: false, citations: [] },
         };
       }
-      const result = await researchMemory(
-        { question: researchQuestionFromParams(params), cwd: ctx.cwd, env: process.env },
-        options.research,
-      );
+      core ??= createCore(ctx, pi, options);
+      const result = await core.researchMemory(researchQuestionFromParams(params));
       return {
         content: [{ type: "text", text: researchMessage(result) }],
         details: result,

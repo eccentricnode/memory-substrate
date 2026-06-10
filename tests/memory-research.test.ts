@@ -366,6 +366,40 @@ describe("memory research extension surfaces", () => {
     expect(notification?.message).toContain("project_bun.md");
   });
 
+  test("prompt-triggered ignore suppresses memory-research command until resumed", async () => {
+    const root = memoryRoot();
+    writeTopic(root, "project_bun.md", "bun", "Bun is required");
+    process.env.PI_MEMORY_ROOT = root;
+    const researchProcess = recordingProcess(
+      JSON.stringify({
+        found: true,
+        answer: "Bun is required.",
+        citations: ["project_bun.md"],
+      }),
+    );
+    const { handlers, commands } = fakePi({ research: { process: researchProcess } });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await handlers.get("before_agent_start")?.(
+      { prompt: "Please ignore memory for this session.", systemPrompt: "base" },
+      ctx,
+    );
+    await commands.get("memory-research")?.handler("What command?", ctx);
+
+    expect(ctx.ui.notifications.at(-1)).toEqual({
+      message: "memory research skipped: ignored",
+      level: "info",
+    });
+    expect(researchProcess.calls).toHaveLength(0);
+
+    commands.get("memory-resume")?.handler("", ctx);
+    await commands.get("memory-research")?.handler("What command?", ctx);
+
+    expect(ctx.ui.notifications.at(-1)?.message).toContain("Bun is required.");
+    expect(researchProcess.calls).toHaveLength(2);
+  });
+
   test("memory_research tool returns only synthesis and structured details", async () => {
     const root = memoryRoot();
     writeTopic(root, "project_worker.md", "worker", "Use the root-confined worker");
@@ -391,5 +425,37 @@ describe("memory research extension surfaces", () => {
       found: true,
       citations: ["project_worker.md"],
     });
+  });
+
+  test("prompt-triggered ignore suppresses memory_research tool", async () => {
+    const root = memoryRoot();
+    writeTopic(root, "project_worker.md", "worker", "Use the root-confined worker");
+    process.env.PI_MEMORY_ROOT = root;
+    const researchProcess = recordingProcess(
+      JSON.stringify({
+        found: true,
+        answer: "Use the root-confined worker.",
+        citations: ["project_worker.md"],
+      }),
+    );
+    const { handlers, tools } = fakePi({ research: { process: researchProcess } });
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    await handlers.get("before_agent_start")?.(
+      { prompt: "Do not use memory.", systemPrompt: "base" },
+      ctx,
+    );
+    const result = await tools
+      .get("memory_research")
+      ?.execute("tool-1", { question: "What worker?" }, undefined, undefined, ctx);
+
+    expect(result?.content[0]?.text).toBe("memory research skipped: ignored");
+    expect(result?.details).toMatchObject({
+      status: "ignored",
+      found: false,
+      citations: [],
+    });
+    expect(researchProcess.calls).toHaveLength(0);
   });
 });

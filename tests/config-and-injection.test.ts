@@ -344,6 +344,39 @@ describe("memory injection", () => {
     expect(reads).toBe(0);
   });
 
+  test("operator can resume prompt-triggered ignore mode but not config ignore", () => {
+    const root = tempDir();
+    writeIndex(root, ["- [Ralph loop](project_ralph-loop.md) — use one test runner"]);
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+    });
+
+    core.handleBeforeAgentStart({
+      prompt: "Ignore memory for now.",
+      systemPrompt: "base",
+    });
+    expect(core.ignored).toBe(true);
+
+    const resumed = core.handleBeforeAgentStart({
+      prompt: "Resume memory and use Ralph loop notes.",
+      systemPrompt: "base",
+    });
+
+    expect(core.ignored).toBe(false);
+    expect(resumed?.systemPrompt).toContain("Durable memory from memory-substrate");
+    expect(resumed?.systemPrompt).not.toContain("Memory ignore mode is active");
+
+    const configIgnored = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_IGNORE: "1" },
+    });
+    const configResult = configIgnored.resumeMemory("command");
+
+    expect(configResult.status).toBe("ignored-by-config");
+    expect(configIgnored.ignored).toBe(true);
+  });
+
   test("no salient overlap injects nothing", () => {
     const root = tempDir();
     writeIndex(root, ["- [Ralph loop](project_ralph-loop.md) — use one test runner"]);

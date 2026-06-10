@@ -22,6 +22,7 @@ import {
   INJECTION_MAX_BYTES,
   INJECTION_MAX_LINES,
   matchedIgnoreMemoryRequest,
+  matchedResumeMemoryRequest,
   type InjectionFileSystem,
   type MemoryInjection,
   type ReactiveMemoryGateReason,
@@ -177,6 +178,10 @@ export interface RefreshMemoryResult {
   proposedIndexLineCount?: number;
   writtenFiles: string[];
   error?: string;
+}
+
+export interface ResumeMemoryResult {
+  status: "resumed" | "not-ignored" | "ignored-by-config" | "disabled";
 }
 
 export interface InjectionAuditRecord {
@@ -501,6 +506,13 @@ export class MemoryExtensionCore {
     event: BeforeAgentStartEvent,
   ): BeforeAgentStartResult | undefined {
     if (!this.config.enabled) return undefined;
+    const resumeMatch = matchedResumeMemoryRequest(event.prompt);
+    if (resumeMatch) {
+      const result = this.resumeMemory("prompt", { matchedPhrase: resumeMatch });
+      if (result.status === "ignored-by-config") {
+        return this.withIgnoreInstruction(event.systemPrompt);
+      }
+    }
     const ignoreMatch = matchedIgnoreMemoryRequest(event.prompt);
     if (ignoreMatch) {
       this.ignoreForSession = true;
@@ -519,6 +531,13 @@ export class MemoryExtensionCore {
     event: BeforeAgentStartEvent,
   ): Promise<BeforeAgentStartResult | undefined> {
     if (!this.config.enabled) return undefined;
+    const resumeMatch = matchedResumeMemoryRequest(event.prompt);
+    if (resumeMatch) {
+      const result = this.resumeMemory("prompt", { matchedPhrase: resumeMatch });
+      if (result.status === "ignored-by-config") {
+        return this.withIgnoreInstruction(event.systemPrompt);
+      }
+    }
     const ignoreMatch = matchedIgnoreMemoryRequest(event.prompt);
     if (ignoreMatch) {
       this.ignoreForSession = true;
@@ -832,6 +851,65 @@ export class MemoryExtensionCore {
     }
   }
 
+  resumeMemory(
+    source: "command" | "prompt" = "command",
+    detail?: { matchedPhrase?: string },
+  ): ResumeMemoryResult {
+    if (!this.config.enabled) return { status: "disabled" };
+    if (this.config.ignore) {
+      this.recordModeAudit("ignore", source, {
+        matchedPhrase: detail?.matchedPhrase,
+        reason: "PI_MEMORY_IGNORE=1",
+      });
+      return { status: "ignored-by-config" };
+    }
+    if (!this.ignoreForSession) return { status: "not-ignored" };
+    this.ignoreForSession = false;
+    this.recordModeAudit("resume", source, {
+      matchedPhrase: detail?.matchedPhrase,
+    });
+    return { status: "resumed" };
+  }
+
+  async researchMemory(question: string): Promise<MemoryResearchResult> {
+    if (!this.config.enabled) {
+      return {
+        status: "disabled",
+        found: false,
+        answer: "memory research skipped: disabled",
+        citations: [],
+      };
+    }
+    if (this.ignoreForSession) {
+      return {
+        status: "ignored",
+        found: false,
+        answer: "memory research skipped: ignored",
+        citations: [],
+      };
+    }
+    if (this.config.error || !this.config.memoryRoot) {
+      return {
+        status: "unavailable",
+        found: false,
+        answer: "memory research unavailable",
+        citations: [],
+        error: this.config.error ?? "memory root unavailable",
+      };
+    }
+    return this.research({
+      question,
+      cwd: this.config.cwd,
+      env: {
+        ...(this.env ?? process.env),
+        PI_MEMORY_ROOT: this.config.memoryRoot,
+        PI_MEMORY_MODEL: this.config.model,
+        PI_MEMORY_RESEARCH_MODEL: this.config.researchModel,
+      },
+      homeDir: undefined,
+    });
+  }
+
   private canProcessBatches(): boolean {
     return (
       this.config.enabled &&
@@ -1103,8 +1181,8 @@ export class MemoryExtensionCore {
   }
 
   private recordModeAudit(
-    mode: "ignore",
-    source: "config" | "prompt" | "flush",
+    mode: "ignore" | "resume",
+    source: "config" | "prompt" | "flush" | "command",
     detail?: { matchedPhrase?: string; prompt?: string; reason?: string },
   ): void {
     this.state?.appendEntry(MODE_AUDIT_TYPE, {
