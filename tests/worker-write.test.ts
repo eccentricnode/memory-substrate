@@ -269,6 +269,48 @@ Use Bun commands for project automation.
     )).toBe(true);
   });
 
+  test("dedupe updates an existing memory even when the incoming draft type differs", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "feedback_bun-commands.md"),
+      `---
+name: bun-commands
+description: Use Bun commands for project automation
+metadata:
+  type: feedback
+---
+
+Use Bun commands for project automation.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun commands](feedback_bun-commands.md) — Use Bun commands for project automation\n",
+    );
+    const worker = createDeterministicMemoryWorkerRunner();
+
+    const result = await worker.run(
+      request(
+        root,
+        "The durable decision is to use Bun for all build and test commands.",
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(topicFiles(root)).toEqual(["feedback_bun-commands.md"]);
+    const topic = readFileSync(join(root, "feedback_bun-commands.md"), "utf8");
+    expect(topic).toContain("metadata:\n  type: feedback");
+    expect(topic).toContain("use Bun for all build and test commands");
+    const indexEntries = readFileSync(join(root, "MEMORY.md"), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("- ["));
+    expect(indexEntries).toHaveLength(1);
+    expect(indexEntries[0]).toContain("](feedback_bun-commands.md) — use Bun");
+    expect(result.changedPaths?.some((path) =>
+      path.endsWith("feedback_bun-commands.md"),
+    )).toBe(true);
+  });
+
   test("flat type frontmatter is not trusted for dedupe", async () => {
     const root = memoryRoot();
     writeFileSync(
@@ -784,6 +826,63 @@ Invalid rule.
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("relativePath must be relative");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("topic paths with control characters are refused before writing", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "control-path-attempt",
+          description: "control path attempt",
+          body:
+            "control path attempt\n\n**Why:** Draft paths become MEMORY.md routes and filesystem targets.\n\n**How to apply:** Reject malformed path text before mutation.",
+          relativePath: "project_control-path-attempt\n.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is control path."),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "memory relativePath must not contain control characters",
+    );
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("index titles with control characters are refused before writing", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "control-title-attempt",
+          title: "Control\nTitle",
+          description: "control title attempt",
+          body:
+            "control title attempt\n\n**Why:** Draft titles render into MEMORY.md pointer lines.\n\n**How to apply:** Reject multiline title text before mutation.",
+          relativePath: "project_control-title-attempt.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is control title."),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "memory title must not contain control characters",
+    );
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });

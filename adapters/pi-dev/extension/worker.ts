@@ -598,6 +598,12 @@ function hasMarkdown(value: string): boolean {
   );
 }
 
+function assertNoControlCharacters(value: string, fieldName: string): void {
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`memory ${fieldName} must not contain control characters`);
+  }
+}
+
 function keywordMatchScore(
   draftKeywords: Set<string>,
   existingKeywords: Set<string>,
@@ -631,7 +637,7 @@ function findExistingTopic(
     const type = VALID_TYPES.has(frontmatter.type as MemoryType)
       ? (frontmatter.type as MemoryType)
       : undefined;
-    if (type === undefined || type !== draft.type) continue;
+    if (type === undefined) continue;
     if (frontmatter.name === desiredName) {
       return { path, name: frontmatter.name, type, score: 1 };
     }
@@ -713,6 +719,7 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   if (action === "delete") {
     const relativePath = draft.relativePath;
     if (!relativePath) throw new Error("delete memory relativePath is required");
+    assertNoControlCharacters(relativePath, "relativePath");
     if (isAbsolute(relativePath)) {
       throw new Error(`memory relativePath must be relative: ${relativePath}`);
     }
@@ -751,6 +758,7 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
   const name = slugify(draft.name ?? description);
   const type = draft.type as MemoryType;
   const relativePath = draft.relativePath ?? `${type}_${name}.md`;
+  assertNoControlCharacters(relativePath, "relativePath");
   if (isAbsolute(relativePath)) {
     throw new Error(`memory relativePath must be relative: ${relativePath}`);
   }
@@ -764,7 +772,11 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
     description,
     body: draft.body.trimEnd(),
     hook: requiredOneLineField(draft.hook ?? description, "hook", HOOK_CAP),
-    title: draft.title ?? titleize(name),
+    title: (() => {
+      const title = draft.title ?? titleize(name);
+      assertNoControlCharacters(title, "title");
+      return title;
+    })(),
     relativePath,
   };
 }
