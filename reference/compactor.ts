@@ -22,6 +22,7 @@ import {
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
 const HOOK_CAP = 150;
+const VALID_TYPES = new Set(["user", "feedback", "project", "reference"]);
 
 export type CompactionFindingKind =
   | "validator-finding"
@@ -120,7 +121,8 @@ function parseFrontmatter(content: string): {
     .match(/^description:\s*(.+)$/m)?.[1]
     ?.trim()
     .replace(/^["']|["']$/g, "");
-  const type = frontmatter.match(/^\s*type:\s*(.+)$/m)?.[1]?.trim();
+  const metadataBlock = frontmatter.match(/^metadata:\s*\n((?:[ \t]+.*(?:\n|$))*)/m)?.[1] ?? "";
+  const type = metadataBlock.match(/^[ \t]+type:\s*(.+)$/m)?.[1]?.trim();
   return { name, description, type };
 }
 
@@ -170,7 +172,9 @@ function collectTopics(root: string, findings: CompactionFinding[]): TopicSummar
           name: frontmatter.name ?? basename(path, ".md"),
           title: titleize(relativePath),
           description: oneLine(description, HOOK_CAP),
-          type: frontmatter.type ?? "unknown",
+          type: frontmatter.type && VALID_TYPES.has(frontmatter.type)
+            ? frontmatter.type
+            : "unknown",
         },
       ];
     });

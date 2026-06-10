@@ -12,11 +12,6 @@
   - Status: open; `specs/08` describes create-or-update proposals while implementation uses `action: "upsert"` as the JSON contract.
   - Plan: either document `upsert` as the concrete wire value in the spec or accept `create-or-update` as an alias without weakening malformed-action refusal.
 
-- P2 — Compactor parser alignment.
-  - Status: open; `reference/compactor.ts` also uses a local regex parser that can treat flat top-level `type:` as a trusted compaction group, unlike the validator.
-  - Plan: keep validator findings in the compaction report, but do not classify flat `type:` as a trusted `metadata.type`; group invalid/unknown topics conservatively.
-  - Plan: add a compactor regression for flat `type:` frontmatter showing both the validator finding and expected proposal grouping.
-
 - P2 — Live harness cadence.
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
@@ -26,6 +21,7 @@
   - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
 
 - Completed — Core pi-dev forced-write surface.
+  - Compactor parser alignment is resolved: `reference/compactor.ts` now only trusts nested valid `metadata.type` for grouping; flat top-level `type` and invalid nested `metadata.type` remain surfaced through validator findings but group as Uncategorized. Focused verification: `bun test tests/reference-compactor.test.ts tests/reference-validator.test.ts` passed with 11 pass, 0 fail.
   - `/memory-flush` now distinguishes successful no-write runs from write-changing success through the core `memoryChanges` result, with command regressions pinning both user-visible outcomes so future status/output changes cannot collapse them back together. Latest verification: `bun test tests/validate-command.test.ts` passed with 17 pass, 0 fail; `bunx tsc --noEmit && bun test` passed with type-check passed, 131 pass, 9 skip, 0 fail.
   - P1 worker runner injection trust boundary is resolved: built-in deterministic/live runners are applicator-owned, while unmarked injected runners run behind a memory-root snapshot/restore guard that fails and retains the queue if they mutate the root directly. `tests/lifecycle-and-worker.test.ts` matters because it proves even a `supportsEnv` injected runner cannot bypass the applicator; direct writes are rolled back.
   - Provider-qualified worker/research model validation now lives in runtime config/status paths before root discovery, flush, or research subprocess launch, so malformed model config fails early without touching memory roots or spawning workers. Focused tests matter because they pin config injection, lifecycle/flush, research, and validate-command behavior around that fail-closed boundary; focused `bun test tests/config-and-injection.test.ts tests/lifecycle-and-worker.test.ts tests/memory-research.test.ts tests/validate-command.test.ts` passed with 63 pass, 0 fail, and full gate `bunx tsc --noEmit && bun test` passed with 128 pass, 9 skip, 0 fail across 11 files.

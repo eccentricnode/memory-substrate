@@ -131,4 +131,59 @@ describe("reference compactor", () => {
     expect(validation.counts.error).toBe(0);
     expect(validation.topicFileCount).toBe(1);
   });
+
+  test("does not trust flat or invalid frontmatter type for proposal grouping", () => {
+    const root = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    writeFileSync(
+      join(root, "project_flat-type.md"),
+      `---
+name: flat-type
+description: Flat type must be migrated before compaction can trust it
+type: project
+---
+
+Flat legacy type frontmatter should not drive trusted compaction grouping.
+`,
+    );
+    writeFileSync(
+      join(root, "team_invalid-type.md"),
+      `---
+name: invalid-type
+description: Invalid nested type must stay visible but untrusted
+metadata:
+  type: team
+---
+
+Invalid nested type frontmatter should not create a trusted compaction section.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Flat Type](project_flat-type.md) — Flat type must be migrated before compaction can trust it",
+        "- [Invalid Type](team_invalid-type.md) — Invalid nested type must stay visible but untrusted",
+        "",
+      ].join("\n"),
+    );
+
+    const report = compactMemoryDirectory(root, { outputDir });
+    const proposedIndex = readFileSync(join(outputDir, "MEMORY.md"), "utf8");
+    const messages = report.findings.map((finding) => finding.message);
+
+    expect(messages).toContain("frontmatter `type` must be nested under `metadata.type`");
+    expect(messages).toContain("frontmatter missing `metadata.type`");
+    expect(messages).toContain('metadata.type "team" not in [user, feedback, project, reference]');
+    expect(proposedIndex).toContain("## Uncategorized");
+    expect(proposedIndex).toContain(
+      "- [Flat Type](project_flat-type.md) — Flat type must be migrated before compaction can trust it",
+    );
+    expect(proposedIndex).toContain(
+      "- [Team Invalid Type](team_invalid-type.md) — Invalid nested type must stay visible but untrusted",
+    );
+    expect(proposedIndex).not.toContain("## Project");
+    expect(proposedIndex).not.toContain("## Team");
+  });
 });
