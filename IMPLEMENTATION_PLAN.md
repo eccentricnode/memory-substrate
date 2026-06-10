@@ -4,10 +4,6 @@
   - Status: open; `specs/08` describes create-or-update proposals while implementation uses `action: "upsert"` as the JSON contract.
   - Plan: either document `upsert` as the concrete wire value in the spec or accept `create-or-update` as an alias without weakening malformed-action refusal.
 
-- P2 — Applicator hook cap refusal coverage.
-  - Status: open; spec review found a possible gap where a valid pointer prefix plus over-long worker hook may be shortened to fit instead of refused at the applicator boundary. `specs/06` and `specs/07` require pi-dev hard cap refusals before live mutation, and this matters because silent trimming hides malformed worker drafts.
-  - Plan: add a focused worker-write regression for a valid filename/title with an over-cap hook, then change applicator behavior to refuse instead of shortening if the gap is confirmed.
-
 - P2 — Live harness cadence.
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
@@ -21,6 +17,7 @@
   - Plan: expand parser/test coverage for additional markdown link forms while preserving root confinement and index/topic existence checks.
 
 - Completed — Core pi-dev forced-write surface.
+  - P2 applicator hook cap refusal coverage is resolved: applicator now refuses over-cap hook fields and valid-prefix hook-overflow pointer lines before mutation, and deterministic fallback now drafts in-cap pointers without weakening live draft refusal. Focused `bun test tests/worker-write.test.ts` passed with 39 pass, 0 fail; full `bunx tsc --noEmit && bun test` passed with 143 pass, 9 skip, 0 fail.
   - P2 ignore mode clear path and manual research suppression is resolved: prompt-triggered session ignore can now be cleared through `/memory-resume` or clear resume phrases while `PI_MEMORY_IGNORE=1` remains authoritative and cannot be cleared in-session. `/memory-research` and `memory_research` now route through the core session state before launching the read-only sub-agent, preventing citations or memory reads while prompt ignore is active. The tests matter because they prove the session-only bug does not leak through command/tool escape hatches, and that config ignore still wins over operator resume. Focused verification: `bun test tests/config-and-injection.test.ts tests/memory-research.test.ts` passed with 37 pass, 0 fail; full green gate `bunx tsc --noEmit && bun test` passed with 140 pass, 9 skip, 0 fail.
   - P2 worker timeout and in-flight queue edge coverage is resolved: lifecycle tests now pin live worker timeout audit/retention and prove candidates enqueued during an in-flight failed run wait for explicit later recovery instead of triggering an immediate retry. A small core flush behavior fix makes flushes that join active processing return idle/current queue state after failure. Focused verification: `bun test tests/lifecycle-and-worker.test.ts` passed with 17 pass, 0 fail, 142 expect() calls.
   - P2 reference validator slug/name enforcement is resolved: validator coverage now pins kebab-case topic slug enforcement and duplicate normalized topic-name detection in the reference validator. Focused verification: `bun test tests/reference-validator.test.ts` passed with 8 pass, 0 fail; full green gate `bunx tsc --noEmit && bun test` passed via one test subagent with 135 pass, 9 skip, 0 fail, 716 expect() calls, 144 tests across 11 files.

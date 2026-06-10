@@ -853,6 +853,36 @@ Invalid rule.
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("refuses valid-prefix pointer lines when the worker hook would overflow", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "short-hook-overflow",
+          title: "Short",
+          description: "hook overflow",
+          body:
+            "hook overflow\n\n**Why:** Over-cap worker hooks must be refused before any live mutation.\n\n**How to apply:** Treat hook fitting as malformed draft handling.",
+          hook: "x".repeat(120),
+          relativePath: "project_short-hook-overflow.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is hook overflow."),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "MEMORY.md pointer line would exceed 150-character cap",
+    );
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
   test("dry-run refuses over-cap rendered pointer lines without proposed output", async () => {
     const root = memoryRoot();
     const before = readFileSync(join(root, "MEMORY.md"), "utf8");
@@ -877,6 +907,37 @@ Invalid rule.
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("pointer prefix would exceed 150-character cap");
+    expect(result.stdout).toBeUndefined();
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("dry-run refuses valid-prefix hook overflow without proposed output", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "dry-run-hook-overflow",
+          title: "Short",
+          description: "dry-run hook overflow",
+          body:
+            "dry-run hook overflow\n\n**Why:** Dry-run must share live applicator refusal boundaries.\n\n**How to apply:** Refuse malformed hooks before rendering proposed output.",
+          hook: "x".repeat(120),
+          relativePath: "project_dry-run-hook-overflow.md",
+        },
+      ],
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is dry-run hook overflow.", true),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "MEMORY.md pointer line would exceed 150-character cap",
+    );
     expect(result.stdout).toBeUndefined();
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
@@ -1058,6 +1119,29 @@ Existing rule.
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("description must be <=200 characters");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("over-cap hooks are refused instead of truncated", async () => {
+    const root = memoryRoot();
+    const before = readFileSync(join(root, "MEMORY.md"), "utf8");
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          description: "over-cap hook",
+          body:
+            "over-cap hook\n\n**Why:** Worker hooks are part of the pointer contract.\n\n**How to apply:** Refuse malformed drafts instead of shortening hooks.",
+          hook: "x".repeat(151),
+        },
+      ],
+    });
+
+    const result = await worker.run(request(root, "The durable decision is hook cap."));
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("memory hook must be <=150 characters");
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });

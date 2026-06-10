@@ -424,6 +424,18 @@ function defaultDecideWrites(request: MemoryWorkerRequest): MemoryWriteDraft[] {
   if (!fact) return [];
   const type = classifyMemory(fact);
   const description = oneLine(fact, DESCRIPTION_CAP);
+  const name = slugify(description);
+  const relativePath = `${type}_${name}.md`;
+  let title = titleize(name);
+  let hook = description;
+  const pointerLine = (nextTitle: string, nextHook: string) =>
+    `- [${nextTitle}](${relativePath}) — ${nextHook}`;
+  if (pointerLine(title, hook).length > INDEX_POINTER_LINE_CAP) {
+    title = "Memory";
+    const maxHookLength =
+      INDEX_POINTER_LINE_CAP - `- [${title}](${relativePath}) — `.length;
+    hook = oneLine(description, Math.max(1, maxHookLength));
+  }
   const body =
     type === "feedback" || type === "project"
       ? `${description}\n\n**Why:** Captured from an explicit durable-memory trigger in the pi.dev session.\n\n**How to apply:** Reuse this when the same context or preference appears again.\n`
@@ -431,9 +443,12 @@ function defaultDecideWrites(request: MemoryWorkerRequest): MemoryWriteDraft[] {
   return [
     {
       type,
+      name,
       description,
       body,
-      hook: description,
+      hook,
+      title,
+      relativePath,
     },
   ];
 }
@@ -684,7 +699,7 @@ function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
     name,
     description,
     body: draft.body.trimEnd(),
-    hook: oneLine(draft.hook ?? description, HOOK_CAP),
+    hook: requiredOneLineField(draft.hook ?? description, "hook", HOOK_CAP),
     title: draft.title ?? titleize(name),
     relativePath,
   };
@@ -728,11 +743,12 @@ function fitDraftHookToPointerLine(
       `MEMORY.md pointer prefix would exceed ${INDEX_POINTER_LINE_CAP}-character cap (${prefix.length} chars)`,
     );
   }
-  const hook = oneLine(draft.hook, maxHookLength);
-  if (!hook) {
-    throw new Error("memory hook is required");
+  if (draft.hook.length > maxHookLength) {
+    throw new Error(
+      `MEMORY.md pointer line would exceed ${INDEX_POINTER_LINE_CAP}-character cap (${prefix.length + draft.hook.length} chars)`,
+    );
   }
-  return hook === draft.hook ? draft : { ...draft, hook };
+  return draft;
 }
 
 function upsertIndexContent(
