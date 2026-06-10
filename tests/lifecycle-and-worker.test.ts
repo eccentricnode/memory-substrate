@@ -584,6 +584,127 @@ Bypass.
     expect(runRecord?.error).toBe("model unavailable");
   });
 
+  test("timed-out live worker run is audited as failed and retained", async () => {
+    const state = recordingState();
+    const root = memoryRoot();
+    const calls: Array<{
+      command: string;
+      args: string[];
+      options: LivePiProcessOptions;
+    }> = [];
+    const process: LivePiProcessExecutor = async (command, args, options) => {
+      calls.push({ command, args, options });
+      if (calls.length === 1) {
+        return { code: 0, stdout: "OK", stderr: "", killed: false };
+      }
+      return {
+        code: 1,
+        stdout: "",
+        stderr: `memory worker timed out after ${options.timeoutMs}ms`,
+        killed: true,
+      };
+    };
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: root },
+      state,
+      worker: createLivePiMemoryWorkerRunner({ process, timeoutMs: 5 }),
+    });
+
+    await core.handleAgentEnd({
+      messages: ["The durable decision is to retain candidates after worker timeouts."],
+    });
+    const result = await core.flush();
+
+    const runRecord = state.entries.find(
+      (entry) => entry.type === "memory-substrate-worker-run",
+    )?.data as
+      | {
+          status?: string;
+          failureClass?: string;
+          retainedQueueCount?: number;
+          error?: string;
+          outputTail?: string;
+        }
+      | undefined;
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("memory worker timed out after 5ms");
+    expect(result.processedItems).toBe(0);
+    expect(result.remainingItems).toBe(1);
+    expect(core.pendingBatchItems).toBe(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.args.join("\n")).toContain("Candidate batch");
+    expect(runRecord?.status).toBe("failed");
+    expect(runRecord?.failureClass).toBe("failed");
+    expect(runRecord?.retainedQueueCount).toBe(1);
+    expect(runRecord?.error).toContain("memory worker timed out after 5ms");
+    expect(runRecord?.outputTail).toContain("memory worker timed out after 5ms");
+  });
+
+  test("candidates enqueued during an in-flight failed run wait for the next flush", async () => {
+    const scheduler = new FakeScheduler();
+    const requests: MemoryWorkerRequest[] = [];
+    let releaseFirst: ((result: MemoryWorkerResult) => void) | undefined;
+    const worker: MemoryWorkerRunner = {
+      supportsEnv: true,
+      async run(request) {
+        requests.push(request);
+        if (requests.length === 1) {
+          return await new Promise<MemoryWorkerResult>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        return { exitCode: 0, stdout: "no memory written" };
+      },
+    };
+    const core = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: { PI_MEMORY_ROOT: memoryRoot(), PI_MEMORY_DEBOUNCE_MS: "10000" },
+      scheduler,
+      worker,
+    });
+
+    await core.handleAgentEnd({ messages: ["first in-flight candidate"] });
+    const failedFlush = core.flush("manual");
+    await Promise.resolve();
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.items.map((item) => item.messages?.[0])).toEqual([
+      "first in-flight candidate",
+    ]);
+
+    await core.handleAgentEnd({ messages: ["second candidate while worker is running"] });
+    await Promise.resolve();
+
+    expect(requests).toHaveLength(1);
+    expect(core.pendingBatchItems).toBe(2);
+    expect(scheduler.pendingTimers).toBe(1);
+
+    await scheduler.fireAll();
+    expect(requests).toHaveLength(1);
+    expect(core.pendingBatchItems).toBe(2);
+
+    releaseFirst?.({ exitCode: 1, stderr: "temporary in-flight failure" });
+    const failed = await failedFlush;
+    await Promise.resolve();
+
+    expect(failed.status).toBe("failed");
+    expect(failed.remainingItems).toBe(2);
+    expect(requests).toHaveLength(1);
+    expect(core.pendingBatchItems).toBe(2);
+
+    const recovered = await core.flush("manual_recovery", { drain: true });
+
+    expect(recovered.status).toBe("flushed");
+    expect(recovered.processedItems).toBe(2);
+    expect(recovered.remainingItems).toBe(0);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.items.map((item) => item.messages?.[0])).toEqual([
+      "first in-flight candidate",
+      "second candidate while worker is running",
+    ]);
+  });
+
   test("manual flush after recovery processes retained candidates once in order", async () => {
     const root = memoryRoot();
     const requests: MemoryWorkerRequest[] = [];

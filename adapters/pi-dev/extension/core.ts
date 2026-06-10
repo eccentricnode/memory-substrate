@@ -684,6 +684,12 @@ export class MemoryExtensionCore {
     this.clearTimer();
     if (this.processing) {
       await this.processingPromise;
+      return {
+        status: "idle",
+        processedItems: 0,
+        memoryChanges: 0,
+        remainingItems: this.queue.length,
+      };
     }
 
     let processedItems = 0;

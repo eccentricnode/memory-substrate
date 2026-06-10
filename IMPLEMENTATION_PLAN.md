@@ -12,10 +12,6 @@
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
 
-- P2 — Worker timeout and in-flight queue edge coverage.
-  - Status: open; specs require worker timeouts to be failed retained runs and items arriving during an in-flight run to wait for the next run, but current tests do not directly pin those edges.
-  - Plan: add focused lifecycle/live-runner tests for timeout audit/retention and no concurrent retry/spin when new candidates arrive during a failed in-flight batch.
-
 - P3 — Reference frontmatter parser completeness.
   - Status: open from read-only review; frontmatter parsing is regex/manual and may diverge from YAML-complete behavior.
   - Plan: decide whether to adopt a YAML parser or explicitly document the supported subset, then pin edge cases in reference tests.
@@ -25,6 +21,7 @@
   - Plan: expand parser/test coverage for additional markdown link forms while preserving root confinement and index/topic existence checks.
 
 - Completed — Core pi-dev forced-write surface.
+  - P2 worker timeout and in-flight queue edge coverage is resolved: lifecycle tests now pin live worker timeout audit/retention and prove candidates enqueued during an in-flight failed run wait for explicit later recovery instead of triggering an immediate retry. A small core flush behavior fix makes flushes that join active processing return idle/current queue state after failure. Focused verification: `bun test tests/lifecycle-and-worker.test.ts` passed with 17 pass, 0 fail, 142 expect() calls.
   - P2 reference validator slug/name enforcement is resolved: validator coverage now pins kebab-case topic slug enforcement and duplicate normalized topic-name detection in the reference validator. Focused verification: `bun test tests/reference-validator.test.ts` passed with 8 pass, 0 fail; full green gate `bunx tsc --noEmit && bun test` passed via one test subagent with 135 pass, 9 skip, 0 fail, 716 expect() calls, 144 tests across 11 files.
   - P2 exact per-write two-step ordering is resolved: applicator still preflights the final index/caps atomically, but live mutation now applies each proposal in spec order; upserts write the topic then the `MEMORY.md` pointer before the next proposal, deletes remove the `MEMORY.md` pointer before deleting the topic, and validation rollback still restores snapshots. The tests matter because they pin interruption-visible ordering for both upsert and delete paths while preserving rollback behavior. Focused `bun test tests/worker-write.test.ts` passed with 36 pass, 0 fail; full green gate `bunx tsc --noEmit && bun test` passed with 134 pass, 9 skip, 0 fail.
   - Compactor parser alignment is resolved: `reference/compactor.ts` now only trusts nested valid `metadata.type` for grouping; flat top-level `type` and invalid nested `metadata.type` remain surfaced through validator findings but group as Uncategorized. Focused verification: `bun test tests/reference-compactor.test.ts tests/reference-validator.test.ts` passed with 11 pass, 0 fail.
