@@ -202,6 +202,39 @@ describe("live pi memory worker runner", () => {
     );
   });
 
+  test("accepts create-or-update live draft action as an upsert alias", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(
+      JSON.stringify({
+        drafts: [
+          {
+            action: "create-or-update",
+            type: "project",
+            description: "alias action compatibility",
+            body:
+              "alias action compatibility\n\n**Why:** Specs may describe create-or-update while the applicator uses upsert internally.\n\n**How to apply:** Normalize the alias before write planning.",
+            hook: "alias action compatibility",
+            title: "Alias Action Compatibility",
+            name: "alias-action-compatibility",
+            relativePath: "project_alias-action-compatibility.md",
+          },
+        ],
+      }),
+    );
+    const worker = createLivePiMemoryWorkerRunner({
+      process,
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(0);
+    expect(topicFiles(root)).toEqual(["project_alias-action-compatibility.md"]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+      "project_alias-action-compatibility.md",
+    );
+  });
+
   test("live worker prompt carries the concrete write protocol", async () => {
     const root = memoryRoot();
     const process = recordingProcess(JSON.stringify({ drafts: [] }));

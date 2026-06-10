@@ -26,6 +26,11 @@ The background worker output is a bounded structured proposal stream.
 ### Proposal actions
 - A create-or-update proposal writes one topic memory and one index pointer through the
   extension applicator.
+- The concrete JSON action for create-or-update is `action: "upsert"`. Applicators MAY
+  accept `action: "create-or-update"` as a compatibility alias, but MUST normalize it to
+  the same internal upsert path before validation, dry-run reporting, or mutation. Why:
+  the prose contract describes the semantic operation while the pi.dev worker prompt has
+  historically used the shorter `upsert` wire value.
 - A delete proposal removes one existing topic memory and its index pointer through the
   extension applicator.
 - Unknown actions are refused. Refusal produces no memory mutation.

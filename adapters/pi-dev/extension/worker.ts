@@ -71,9 +71,10 @@ export function isApplicatorOwnedWorkerRunner(
 }
 
 export type MemoryDraftAction = "upsert" | "delete";
+export type MemoryDraftInputAction = MemoryDraftAction | "create-or-update";
 
 export interface MemoryWriteDraft {
-  action?: MemoryDraftAction;
+  action?: MemoryDraftInputAction;
   type?: MemoryType;
   description?: string;
   body?: string;
@@ -644,8 +645,13 @@ export interface MemoryWriteStep {
   relativePath: string;
 }
 
+function normalizeDraftAction(action: MemoryDraftInputAction | undefined): MemoryDraftAction {
+  if (action === undefined || action === "create-or-update") return "upsert";
+  return action;
+}
+
 function normalizeDraft(draft: MemoryWriteDraft): RequiredMemoryDraft {
-  const action = draft.action ?? "upsert";
+  const action = normalizeDraftAction(draft.action);
   if (action === "delete") {
     const relativePath = draft.relativePath;
     if (!relativePath) throw new Error("delete memory relativePath is required");
@@ -1377,7 +1383,7 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
       throw new Error(`live worker draft ${index} is not an object`);
     }
     const record = draft as Record<string, unknown>;
-    const action = asString(record.action);
+    const action = asString(record.action) as MemoryDraftInputAction | undefined;
     const type = asString(record.type);
     const description = asString(record.description);
     const body = asString(record.body);
@@ -1385,10 +1391,16 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
     const title = asString(record.title);
     const name = asString(record.name);
     const relativePath = asString(record.relativePath);
-    if (action !== undefined && action !== "upsert" && action !== "delete") {
+    if (
+      action !== undefined &&
+      action !== "upsert" &&
+      action !== "create-or-update" &&
+      action !== "delete"
+    ) {
       throw new Error(`live worker draft ${index} has invalid action`);
     }
-    if (action === "delete") {
+    const normalizedAction = normalizeDraftAction(action);
+    if (normalizedAction === "delete") {
       if (!relativePath) {
         throw new Error(`live worker draft ${index} missing delete relativePath`);
       }
@@ -1396,7 +1408,7 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
         throw new Error(`live worker draft ${index} missing delete description`);
       }
       return {
-        action,
+        action: normalizedAction,
         description,
         relativePath,
       };
@@ -1410,7 +1422,7 @@ function parseLiveWorkerDrafts(stdout: string): MemoryWriteDraft[] {
       );
     }
     return {
-      action: action ?? "upsert",
+      action: normalizedAction,
       type: type as MemoryType,
       description,
       body,

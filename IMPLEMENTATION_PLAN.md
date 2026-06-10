@@ -1,22 +1,19 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
-- P2 — Worker draft action naming compatibility.
-  - Status: open; `specs/08` describes create-or-update proposals while implementation uses `action: "upsert"` as the JSON contract.
-  - Plan: either document `upsert` as the concrete wire value in the spec or accept `create-or-update` as an alias without weakening malformed-action refusal.
-
 - P2 — Live harness cadence.
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.
 
 - P3 — Reference frontmatter parser completeness.
-  - Status: open from read-only review; frontmatter parsing is regex/manual and may diverge from YAML-complete behavior.
-  - Plan: decide whether to adopt a YAML parser or explicitly document the supported subset, then pin edge cases in reference tests.
+  - Status: open from read-only review; frontmatter parsing is regex/manual and may diverge from YAML-complete behavior. Explorer findings: manual frontmatter parsing currently accepts non-subset YAML and leaves nesting semantics ambiguous, and compactor behavior can diverge around quoted `metadata.type` values.
+  - Plan: decide whether to adopt a YAML parser or explicitly document the supported subset, then pin non-subset YAML, nested metadata, and quoted type edge cases in reference tests.
 
 - P3 — Reference markdown link validation coverage.
-  - Status: open from read-only review; markdown link validation misses some valid link forms.
-  - Plan: expand parser/test coverage for additional markdown link forms while preserving root confinement and index/topic existence checks.
+  - Status: open from read-only review; markdown link validation misses some valid link forms and falsely accepts others. Explorer findings: angle-bracket links and links containing spaces are missed, while markdown-looking links inside fenced code blocks can be validated as real topic pointers.
+  - Plan: expand parser/test coverage for additional markdown link forms and fenced-code exclusions while preserving root confinement and index/topic existence checks.
 
 - Completed — Core pi-dev forced-write surface.
+  - P2 worker draft action naming compatibility is resolved: worker draft input now accepts `create-or-update` as an alias normalized to internal `upsert`, preserves refusal for unknown actions, and `specs/08` documents canonical wire semantics. The tests matter because focused worker coverage proves both the compatibility path and malformed-action fail-closed behavior, while the full gate proves the alias did not regress unrelated forced-write, validation, or extension surfaces. Focused `bun test tests/worker-write.test.ts tests/live-worker.test.ts` passed with 56 pass, 0 fail; full `bunx tsc --noEmit && bun test` passed with 145 pass, 9 skip, 0 fail.
   - P2 applicator hook cap refusal coverage is resolved: applicator now refuses over-cap hook fields and valid-prefix hook-overflow pointer lines before mutation, and deterministic fallback now drafts in-cap pointers without weakening live draft refusal. Focused `bun test tests/worker-write.test.ts` passed with 39 pass, 0 fail; full `bunx tsc --noEmit && bun test` passed with 143 pass, 9 skip, 0 fail.
   - P2 ignore mode clear path and manual research suppression is resolved: prompt-triggered session ignore can now be cleared through `/memory-resume` or clear resume phrases while `PI_MEMORY_IGNORE=1` remains authoritative and cannot be cleared in-session. `/memory-research` and `memory_research` now route through the core session state before launching the read-only sub-agent, preventing citations or memory reads while prompt ignore is active. The tests matter because they prove the session-only bug does not leak through command/tool escape hatches, and that config ignore still wins over operator resume. Focused verification: `bun test tests/config-and-injection.test.ts tests/memory-research.test.ts` passed with 37 pass, 0 fail; full green gate `bunx tsc --noEmit && bun test` passed with 140 pass, 9 skip, 0 fail.
   - P2 worker timeout and in-flight queue edge coverage is resolved: lifecycle tests now pin live worker timeout audit/retention and prove candidates enqueued during an in-flight failed run wait for explicit later recovery instead of triggering an immediate retry. A small core flush behavior fix makes flushes that join active processing return idle/current queue state after failure. Focused verification: `bun test tests/lifecycle-and-worker.test.ts` passed with 17 pass, 0 fail, 142 expect() calls.

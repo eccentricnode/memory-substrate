@@ -1076,6 +1076,38 @@ Existing rule.
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
   });
 
+  test("create-or-update draft action is accepted as an upsert alias", async () => {
+    const root = memoryRoot();
+    const steps: MemoryWriteStep[] = [];
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          action: "create-or-update",
+          type: "project",
+          description: "alias action compatibility",
+          body:
+            "alias action compatibility\n\n**Why:** Specs may describe create-or-update while the applicator uses upsert internally.\n\n**How to apply:** Normalize the alias before write planning.",
+          hook: "alias action compatibility",
+          title: "Alias Action Compatibility",
+          name: "alias-action-compatibility",
+          relativePath: "project_alias-action-compatibility.md",
+        },
+      ],
+      observeWriteStep: (step) => steps.push(step),
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is alias action compatibility."),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(topicFiles(root)).toEqual(["project_alias-action-compatibility.md"]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+      "project_alias-action-compatibility.md",
+    );
+    expect(steps.map((step) => step.draftAction)).toEqual(["upsert", "upsert"]);
+  });
+
   test("markdown descriptions are refused before mutation", async () => {
     const root = memoryRoot();
     const before = readFileSync(join(root, "MEMORY.md"), "utf8");
