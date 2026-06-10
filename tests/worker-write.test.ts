@@ -17,6 +17,7 @@ import {
   createDeterministicMemoryWorkerRunner,
   type MemoryWriteStep,
   type MemoryWorkerRequest,
+  type MemoryWorkerResult,
 } from "../adapters/pi-dev/extension/worker.ts";
 
 const tmpRoots: string[] = [];
@@ -439,6 +440,64 @@ Quoted nested metadata.type should match validator semantics.
     expect(existsSync(join(root, ".memory-substrate", "dry-run"))).toBe(false);
     expect(topicFiles(root)).toEqual([]);
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe(before);
+  });
+
+  test("concurrent applicator writes against one root fail closed under the write lock", async () => {
+    const root = memoryRoot();
+    let secondResult: MemoryWorkerResult | undefined;
+    const competingWorker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "second-concurrent-write",
+          description: "second concurrent write",
+          body:
+            "second concurrent write\n\n**Why:** Cross-process writes must serialize at the applicator.\n\n**How to apply:** Refuse overlapping writes rather than racing MEMORY.md.",
+          hook: "second concurrent write",
+          title: "Second concurrent write",
+          relativePath: "project_second-concurrent-write.md",
+        },
+      ],
+    });
+    const worker = createDeterministicMemoryWorkerRunner({
+      decideWrites: () => [
+        {
+          type: "project",
+          name: "first-concurrent-write",
+          description: "first concurrent write",
+          body:
+            "first concurrent write\n\n**Why:** The applicator lock must cover planning, mutation, and validation.\n\n**How to apply:** Hold the lock until validation completes.",
+          hook: "first concurrent write",
+          title: "First concurrent write",
+          relativePath: "project_first-concurrent-write.md",
+        },
+      ],
+      validate: async () => {
+        expect(existsSync(join(root, ".memory-substrate", "write.lock"))).toBe(
+          true,
+        );
+        secondResult = await competingWorker.run(
+          request(root, "The durable decision is a competing write."),
+        );
+        return { exitCode: 0, stdout: "ok" };
+      },
+    });
+
+    const result = await worker.run(
+      request(root, "The durable decision is a first write."),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(secondResult?.exitCode).toBe(1);
+    expect(secondResult?.stderr).toContain("memory write lock is already held");
+    expect(existsSync(join(root, ".memory-substrate", "write.lock"))).toBe(false);
+    expect(topicFiles(root)).toEqual(["project_first-concurrent-write.md"]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+      "project_first-concurrent-write.md",
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).not.toContain(
+      "project_second-concurrent-write.md",
+    );
   });
 
   test("missing MEMORY.md is refused before live write planning", async () => {

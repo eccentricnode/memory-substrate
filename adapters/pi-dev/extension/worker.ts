@@ -169,6 +169,7 @@ const CANDIDATE_ITEM_TEXT_CAP = 6_000;
 const CANDIDATE_BATCH_TEXT_CAP = 12_000;
 const LIVE_WORKER_TIMEOUT_MS = 120_000;
 const DRY_RUN_SCRATCH_DIR = ".memory-substrate/dry-run";
+const WRITE_LOCK_DIR = ".memory-substrate/write.lock";
 const LIVE_WORKER_REACHABILITY_PROMPT =
   "Memory worker model reachability check. Reply exactly: OK";
 const VALIDATOR_PATH = fileURLToPath(
@@ -243,6 +244,44 @@ function safePath(root: string, relativePath: string): string {
     throw new Error(`refusing symlink escape memory path: ${relativePath}`);
   }
   return target;
+}
+
+function acquireMemoryWriteLock(root: string, batchId: string): MemoryWriteLock {
+  const lockPath = safePath(root, WRITE_LOCK_DIR);
+  let created = false;
+  try {
+    mkdirSync(dirname(lockPath), { recursive: true });
+    mkdirSync(lockPath);
+    created = true;
+    writeFileSync(
+      join(lockPath, "owner.json"),
+      `${JSON.stringify({
+        batchId,
+        pid: process.pid,
+        createdAt: new Date().toISOString(),
+      })}\n`,
+    );
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "EEXIST"
+    ) {
+      throw new Error(
+        "memory write lock is already held; refusing concurrent memory write",
+      );
+    }
+    if (created) rmSync(lockPath, { force: true, recursive: true });
+    throw error;
+  }
+
+  return {
+    release() {
+      rmSync(lockPath, { force: true, recursive: true });
+      cleanupEmptyDirectories(root, [lockPath]);
+    },
+  };
 }
 
 function slugify(value: string): string {
@@ -621,6 +660,10 @@ interface DeleteWritePlan {
 }
 
 type MemoryChangePlan = UpsertWritePlan | DeleteWritePlan;
+
+interface MemoryWriteLock {
+  release(): void;
+}
 
 interface FileSnapshot {
   existed: boolean;
@@ -1469,6 +1512,22 @@ export async function applyMemoryWriteDrafts(
     return { exitCode: 0, stdout: "no memory written" };
   }
 
+  const lock = acquireMemoryWriteLock(request.memoryRoot, request.batchId);
+  try {
+    return await applyMemoryWriteDraftsWithLock(request, normalized, options);
+  } finally {
+    lock.release();
+  }
+}
+
+async function applyMemoryWriteDraftsWithLock(
+  request: MemoryWorkerRequest,
+  normalized: RequiredMemoryDraft[],
+  options: Pick<
+    DeterministicMemoryWorkerOptions,
+    "validate" | "observeWriteStep"
+  >,
+): Promise<MemoryWorkerResult> {
   const changedPaths = new Set<string>();
   const proposedPaths = new Set<string>();
   const changePlan = normalized.map((draft): MemoryChangePlan => {
