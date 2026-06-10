@@ -58,6 +58,10 @@ function childEnv(requestEnv: RuntimeEnv): Record<string, string> {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
   }
+  env.NPM_CONFIG_UPDATE_NOTIFIER = "false";
+  env.npm_config_update_notifier = "false";
+  env.NPM_CONFIG_LOGLEVEL = "error";
+  env.npm_config_loglevel = "error";
   for (const [key, value] of Object.entries(requestEnv)) {
     if (value !== undefined) env[key] = value;
   }
@@ -189,7 +193,7 @@ function parseResearchPayload(stdout: string): {
   answer: string;
   citations: string[];
 } {
-  const payload = JSON.parse(stdout.trim()) as unknown;
+  const payload = JSON.parse(stripNpmNoise(stdout)) as unknown;
   if (!payload || typeof payload !== "object") {
     throw new Error("memory research JSON must be an object");
   }
@@ -211,6 +215,15 @@ function parseResearchPayload(stdout: string): {
     answer: record.answer.trim(),
     citations: record.citations.map((item) => item.trim()).filter(Boolean),
   };
+}
+
+function stripNpmNoise(stdout: string): string {
+  const cleaned = stdout
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*npm\s+(?:warn|notice)\b/i.test(line))
+    .join("\n")
+    .trim();
+  return cleaned;
 }
 
 function isInsideRoot(root: string, target: string): boolean {

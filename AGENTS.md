@@ -16,6 +16,9 @@ capability. Source: `adapters/pi-dev/extension/`. Shared lib: `reference/`. Host
 - Run validator: `bun reference/validator.ts <memory_root>`
 - Run migrator:  `bun reference/migrator.ts <pai_root> <output_dir>`
 - Opt-in live pi.dev harness: `bun run test:pi-live` (real pi/model calls; not green gate)
+- In `pi --print`, `ctx.hasUI` is false, so `ctx.ui.notify` slash-command output is
+  not observable; assert command UI via RPC/interactive mode, and keep `test:pi-live`
+  to print-observable agent/tool/reactive behavior.
 - Inspect pi extension API: `~/.local/share/mise/installs/node/25.1.0/lib/node_modules/@mariozechner/pi-coding-agent/docs/extensions.md`
 - Working extension template to copy patterns from: `~/Work/active/pai-lite/extensions/blueprint-loader.ts`
 - Inspect model names: `pi --list-models` (advisory only; worker reachability is the no-tools subprocess; see invariant 6)

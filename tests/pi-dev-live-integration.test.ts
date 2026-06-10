@@ -242,6 +242,10 @@ function cleanProcessEnv(): Record<string, string> {
     if (value === undefined || key.startsWith("PI_MEMORY_")) continue;
     env[key] = value;
   }
+  env.NPM_CONFIG_UPDATE_NOTIFIER = "false";
+  env.npm_config_update_notifier = "false";
+  env.NPM_CONFIG_LOGLEVEL = "error";
+  env.npm_config_loglevel = "error";
   return env;
 }
 
@@ -530,32 +534,6 @@ liveDescribe("opt-in live pi.dev memory integration", () => {
         expect(String(records[0]?.error ?? "").length).toBeGreaterThan(0);
         expect(String(records[0]?.error ?? "")).not.toContain("pi --list-models");
         expectNoOutOfRootAuditPaths(run);
-      } finally {
-        expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));
-        cleanup(run);
-      }
-    },
-    LIVE_TIMEOUT_MS + 30_000,
-  );
-
-  test(
-    "memory-research command reads seeded memory without mutating it",
-    async () => {
-      const defaultRootBefore = snapshotPath(DEFAULT_MEMORY_ROOT);
-      const run = await runLivePi(
-        "/memory-research What verification command does live research memory require?",
-        {},
-        seedResearchMemory,
-      );
-      try {
-        expectPiSuccess(run);
-        expect(`${run.result.stdout}\n${run.result.stderr}`).toContain(
-          "project_live-research-build-command.md",
-        );
-        expect(`${run.result.stdout}\n${run.result.stderr}`).toMatch(/bun/i);
-        expectSnapshotUnchanged(run.memoryRootBefore, snapshotPath(run.memoryRoot));
-        expect(workerRecords(run)).toEqual([]);
-        expect(queueRecords(run)).toEqual([]);
       } finally {
         expectSnapshotUnchanged(defaultRootBefore, snapshotPath(DEFAULT_MEMORY_ROOT));
         cleanup(run);

@@ -134,6 +134,36 @@ describe("memory research sub-agent", () => {
     expect(call?.args.at(-1)).toContain("These tools reject paths");
   });
 
+  test("parses research JSON despite npm wrapper notices", async () => {
+    const root = memoryRoot();
+    writeTopic(root, "project_bun.md", "bun", "Bun is the project build command");
+    const researchProcess = recordingProcess(`npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+npm notice
+npm notice New minor version of npm available! 11.12.1 -> 11.16.0
+${JSON.stringify({
+  found: true,
+  answer: "Bun is the project build command.",
+  citations: ["project_bun.md"],
+})}
+npm notice`);
+
+    const result = await researchMemory(
+      {
+        question: "What build command should be used?",
+        cwd: tempDir(),
+        env: { PI_MEMORY_ROOT: root },
+      },
+      { process: researchProcess },
+    );
+
+    expect(result.status).toBe("found");
+    expect(result.citations).toEqual(["project_bun.md"]);
+    expect(researchProcess.calls[1]?.options.env.NPM_CONFIG_UPDATE_NOTIFIER).toBe(
+      "false",
+    );
+    expect(researchProcess.calls[1]?.options.env.NPM_CONFIG_LOGLEVEL).toBe("error");
+  });
+
   test("fails closed when research returns citations outside indexed topic files", async () => {
     const root = memoryRoot();
     writeTopic(root, "project_bun.md", "bun", "Bun is the project build command");
