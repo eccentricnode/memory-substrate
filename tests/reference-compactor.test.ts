@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,6 +104,23 @@ describe("reference compactor", () => {
     expect(() =>
       compactMemoryDirectory(root, { outputDir: join(root, "proposal") }),
     ).toThrow("output directory must be outside the memory root");
+  });
+
+  test("fails closed when a symlinked output ancestor resolves inside the memory root", () => {
+    const root = tempDir();
+    const outside = tempDir();
+    const link = join(outside, "memory-link");
+    writeTopic(root, "project_bun-commands.md", "bun-commands", "Use Bun for build and test commands");
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun Commands](project_bun-commands.md) — Use Bun for build and test commands\n",
+    );
+    symlinkSync(root, link, "dir");
+
+    expect(() =>
+      compactMemoryDirectory(root, { outputDir: join(link, "proposal") }),
+    ).toThrow("output directory must be outside the memory root");
+    expect(existsSync(join(root, "proposal"))).toBe(false);
   });
 
   test("allows explicit hidden in-root proposal output without entering durable validation", () => {

@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -222,5 +223,18 @@ The imported projects file carries useful context but no memory frontmatter.
     expect(() =>
       migratePaiMemoryDirectory(sourceRoot, join(sourceRoot, "proposal")),
     ).toThrow("output directory must be outside the PAI source root");
+  });
+
+  test("fails closed when a symlinked output ancestor resolves inside the PAI root", () => {
+    const sourceRoot = tempDir();
+    const outside = tempDir();
+    const link = join(outside, "source-link");
+    writeFileSync(join(sourceRoot, "MEMORY.md"), "# Memory\n");
+    symlinkSync(sourceRoot, link, "dir");
+
+    expect(() =>
+      migratePaiMemoryDirectory(sourceRoot, join(link, "proposal")),
+    ).toThrow("output directory must be outside the PAI source root");
+    expect(existsSync(join(sourceRoot, "proposal"))).toBe(false);
   });
 });

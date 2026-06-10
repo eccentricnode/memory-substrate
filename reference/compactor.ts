@@ -364,6 +364,18 @@ function prepareOutputDir(
     }
   } else if (outputInsideRoot) {
     throw new Error("output directory must be outside the memory root");
+  } else {
+    const realRoot = realpathSync(resolvedRoot);
+    const realAncestor = realpathSync(nearestExistingAncestor(dirname(resolvedOutput)));
+    if (isInsideRoot(realRoot, realAncestor)) {
+      throw new Error("output directory must be outside the memory root");
+    }
+    if (existsSync(resolvedOutput)) {
+      const realOutput = realpathSync(resolvedOutput);
+      if (isInsideRoot(realRoot, realOutput)) {
+        throw new Error("output directory must be outside the memory root");
+      }
+    }
   }
   if (existsSync(resolvedOutput)) {
     if (!force) {
@@ -372,6 +384,14 @@ function prepareOutputDir(
     rmSync(resolvedOutput, { force: true, recursive: true });
   }
   mkdirSync(resolvedOutput, { recursive: true });
+  if (!allowInsideRoot) {
+    const realRoot = realpathSync(resolvedRoot);
+    const realOutput = realpathSync(resolvedOutput);
+    if (isInsideRoot(realRoot, realOutput)) {
+      rmSync(resolvedOutput, { force: true, recursive: true });
+      throw new Error("output directory must be outside the memory root");
+    }
+  }
   return resolvedOutput;
 }
 

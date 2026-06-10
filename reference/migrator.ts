@@ -103,6 +103,16 @@ function isInsideRoot(root: string, target: string): boolean {
   );
 }
 
+function nearestExistingAncestor(path: string): string {
+  let current = path;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
+
 function toPortablePath(path: string): string {
   return path.split(sep).join("/");
 }
@@ -518,17 +528,33 @@ Review the proposed memory directory and this report. After confirming the infer
 }
 
 function prepareOutputDir(sourceRoot: string, outputDir: string, force: boolean): string {
+  const resolvedSourceRoot = resolve(sourceRoot);
   const resolvedOutput = resolve(outputDir);
-  if (resolve(sourceRoot) === resolvedOutput || isInsideRoot(sourceRoot, resolvedOutput)) {
+  const realSourceRoot = realpathSync(resolvedSourceRoot);
+  const realAncestor = realpathSync(nearestExistingAncestor(dirname(resolvedOutput)));
+  if (
+    resolvedSourceRoot === resolvedOutput ||
+    isInsideRoot(resolvedSourceRoot, resolvedOutput) ||
+    isInsideRoot(realSourceRoot, realAncestor)
+  ) {
     throw new Error("output directory must be outside the PAI source root");
   }
   if (existsSync(resolvedOutput)) {
+    const realOutput = realpathSync(resolvedOutput);
+    if (isInsideRoot(realSourceRoot, realOutput)) {
+      throw new Error("output directory must be outside the PAI source root");
+    }
     if (!force) {
       throw new Error(`output directory already exists: ${resolvedOutput}`);
     }
     rmSync(resolvedOutput, { force: true, recursive: true });
   }
   mkdirSync(resolvedOutput, { recursive: true });
+  const realOutput = realpathSync(resolvedOutput);
+  if (isInsideRoot(realSourceRoot, realOutput)) {
+    rmSync(resolvedOutput, { force: true, recursive: true });
+    throw new Error("output directory must be outside the PAI source root");
+  }
   return resolvedOutput;
 }
 
