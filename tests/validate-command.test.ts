@@ -131,21 +131,24 @@ describe("pi-dev memory command surface", () => {
     expect(calls).toBe(0);
   });
 
-  test("core validation is suppressed in ignore mode without invoking the runner", async () => {
+  test("core validation runs in ignore mode because it is a non-mutating diagnostic", async () => {
     let calls = 0;
+    const root = memoryRoot();
     const core = new MemoryExtensionCore({
       cwd: tempDir(),
-      env: { PI_MEMORY_ROOT: memoryRoot(), PI_MEMORY_IGNORE: "1" },
-      validator: async () => {
+      env: { PI_MEMORY_ROOT: root, PI_MEMORY_IGNORE: "1" },
+      validator: async (memoryRoot) => {
         calls += 1;
+        expect(memoryRoot).toBe(root);
         return { exitCode: 0 };
       },
     });
 
     const result = await core.validateMemory();
 
-    expect(result.status).toBe("ignored");
-    expect(calls).toBe(0);
+    expect(result.status).toBe("passed");
+    expect(result.memoryRoot).toBe(root);
+    expect(calls).toBe(1);
   });
 
   test("core validation reports reference validator failures from the resolved root", async () => {
@@ -199,7 +202,7 @@ describe("pi-dev memory command surface", () => {
     expect(notification?.message).toBe("memory validation skipped: disabled");
   });
 
-  test("memory-validate command obeys ignore mode", async () => {
+  test("memory-validate command runs in ignore mode without using or writing memory", async () => {
     const root = memoryRoot();
     process.env.PI_MEMORY_ROOT = root;
     process.env.PI_MEMORY_IGNORE = "1";
@@ -211,8 +214,9 @@ describe("pi-dev memory command surface", () => {
     await commands.get("memory-validate")?.handler("", ctx);
 
     const notification = ctx.ui.notifications.at(-1);
-    expect(notification?.level).toBe("info");
-    expect(notification?.message).toBe("memory validation skipped: ignored");
+    expect(notification?.level).toBe("success");
+    expect(notification?.message).toContain("memory validation passed");
+    expect(notification?.message).toContain(root);
   });
 
   test("memory-flush command drains queued candidates without a real model", async () => {

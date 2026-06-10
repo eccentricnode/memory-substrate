@@ -145,13 +145,12 @@ function validationLevel(
   result: ValidateMemoryResult,
 ): "info" | "warn" | "error" | "success" {
   if (result.status === "passed") return "success";
-  if (result.status === "disabled" || result.status === "ignored") return "info";
+  if (result.status === "disabled") return "info";
   return "error";
 }
 
 function validationMessage(result: ValidateMemoryResult): string {
   if (result.status === "disabled") return "memory validation skipped: disabled";
-  if (result.status === "ignored") return "memory validation skipped: ignored";
   if (result.status === "unavailable") {
     return `memory validation unavailable: ${result.error ?? "memory root unavailable"}`;
   }
