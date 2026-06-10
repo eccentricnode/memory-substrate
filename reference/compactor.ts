@@ -18,6 +18,11 @@ import {
   validateMemoryDirectory,
   type Finding as ValidatorFinding,
 } from "./validator.ts";
+import {
+  memoryFrontmatterField,
+  memoryFrontmatterMetadataType,
+  parseMemoryFrontmatter,
+} from "./frontmatter.ts";
 
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
@@ -112,21 +117,14 @@ function parseFrontmatter(content: string): {
   description?: string;
   type?: string;
 } {
-  if (!content.startsWith("---\n")) return {};
-  const end = content.indexOf("\n---\n", 4);
-  if (end === -1) return {};
-  const frontmatter = content.slice(4, end);
-  const name = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const description = frontmatter
-    .match(/^description:\s*(.+)$/m)?.[1]
-    ?.trim()
-    .replace(/^["']|["']$/g, "");
-  const metadataBlock = frontmatter.match(/^metadata:\s*\n((?:[ \t]+.*(?:\n|$))*)/m)?.[1] ?? "";
-  const type = metadataBlock
-    .match(/^[ \t]+type:\s*(.+)$/m)?.[1]
-    ?.trim()
-    .replace(/^["']|["']$/g, "");
-  return { name, description, type };
+  const parsed = parseMemoryFrontmatter(content);
+  if (!parsed.ok) return {};
+  const data = parsed.data ?? {};
+  return {
+    name: memoryFrontmatterField(data, "name"),
+    description: memoryFrontmatterField(data, "description"),
+    type: memoryFrontmatterMetadataType(data),
+  };
 }
 
 function listMarkdownFiles(root: string): string[] {

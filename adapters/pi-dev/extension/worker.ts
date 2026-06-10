@@ -19,6 +19,11 @@ import {
   validateProviderQualifiedModel,
   type RuntimeEnv,
 } from "./config.ts";
+import {
+  memoryFrontmatterField,
+  memoryFrontmatterMetadataType,
+  parseMemoryFrontmatter,
+} from "../../../reference/frontmatter.ts";
 
 export type BatchTrigger = "agent_end" | "session_before_compact";
 export type WorkerRunStatus = "completed" | "failed" | "refused";
@@ -485,31 +490,14 @@ function parseTopicFrontmatter(content: string): {
   description?: string;
   type?: string;
 } {
-  if (!content.startsWith("---\n")) return {};
-  const end = content.indexOf("\n---\n", 4);
-  if (end === -1) return {};
-  const frontmatter = content.slice(4, end);
-  const name = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const description = frontmatter
-    .match(/^description:\s*(.+)$/m)?.[1]
-    ?.trim()
-    .replace(/^["']|["']$/g, "");
-  const type = parseNestedMetadataType(frontmatter);
-  return { name, description, type };
-}
-
-function parseNestedMetadataType(frontmatter: string): string | undefined {
-  const lines = frontmatter.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index++) {
-    if (!/^metadata:\s*$/.test(lines[index] ?? "")) continue;
-    for (const nestedLine of lines.slice(index + 1)) {
-      if (/^[^\s].+/.test(nestedLine)) break;
-      const match = nestedLine.match(/^[ \t]+type:\s*(.+)$/);
-      if (match?.[1]) return match[1].trim().replace(/^["']|["']$/g, "");
-    }
-    return undefined;
-  }
-  return undefined;
+  const parsed = parseMemoryFrontmatter(content);
+  if (!parsed.ok) return {};
+  const data = parsed.data ?? {};
+  return {
+    name: memoryFrontmatterField(data, "name"),
+    description: memoryFrontmatterField(data, "description"),
+    type: memoryFrontmatterMetadataType(data),
+  };
 }
 
 function boundedSnapshotField(value: string | undefined): string | undefined {

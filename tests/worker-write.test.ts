@@ -319,8 +319,8 @@ Historical flat frontmatter should not steer worker dedupe.
       `---
 name: bun-commands
 description: Use Bun commands for project automation
-metadata:
-  type: "project"
+metadata: # schema block
+  type: "project" # inline comments are ignored outside quotes
 ---
 
 Quoted nested metadata.type should match validator semantics.

@@ -12,6 +12,11 @@ import {
   statSync,
 } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  memoryFrontmatterField,
+  memoryFrontmatterMetadataType,
+  parseMemoryFrontmatter,
+} from "./frontmatter.ts";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 type MemoryType = typeof VALID_TYPES[number];
@@ -50,45 +55,6 @@ const push = (
   msg: string,
   line?: number,
 ) => ctx.findings.push({ severity, file, line, msg });
-
-function parseFrontmatter(content: string): {
-  ok: boolean;
-  data?: Record<string, unknown>;
-  error?: string;
-} {
-  if (!content.startsWith("---\n")) {
-    return { ok: false, error: "no frontmatter delimiter" };
-  }
-  const end = content.indexOf("\n---\n", 4);
-  if (end === -1) return { ok: false, error: "unterminated frontmatter block" };
-  const body = content.slice(4, end);
-  const data: Record<string, unknown> = {};
-  const metadata: Record<string, unknown> = {};
-  let inMetadata = false;
-  for (const raw of body.split("\n")) {
-    if (!raw.trim() || raw.trimStart().startsWith("#")) continue;
-    // Detect block headers: `metadata:` (with optional trailing whitespace, no value)
-    const blockHeader = raw.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*$/);
-    if (blockHeader && blockHeader[1] === "metadata") {
-      inMetadata = true;
-      continue;
-    }
-    const m = raw.match(/^(\s*)([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/);
-    if (!m) continue;
-    const indent = m[1] ?? "";
-    const key = m[2];
-    const value = m[3] ?? "";
-    if (!key) continue;
-    const isIndented = indent.length > 0;
-    // Indented lines go into the most recently opened block (metadata).
-    // Non-indented lines reset block context unless they're empty.
-    if (!isIndented) inMetadata = false;
-    const target = isIndented && inMetadata ? metadata : data;
-    target[key] = value.replace(/^["']|["']$/g, "");
-  }
-  if (Object.keys(metadata).length > 0) data.metadata = metadata;
-  return { ok: true, data };
-}
 
 function isInsideRoot(root: string, target: string): boolean {
   const resolvedRoot = resolve(root);
@@ -255,17 +221,16 @@ function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult 
   const content = readFileSync(path, "utf8");
   const wikiLinks = findWikiLinks(content);
   const markdownLinks = findMarkdownLinks(content);
-  const fm = parseFrontmatter(content);
+  const fm = parseMemoryFrontmatter(content);
   if (!fm.ok) {
     push(ctx, "error", rel, `frontmatter: ${fm.error}`);
     return { path, wikiLinks };
   }
   const data = fm.data ?? {};
-  const name = typeof data.name === "string" ? data.name : undefined;
-  const description =
-    typeof data.description === "string" ? data.description : undefined;
+  const name = memoryFrontmatterField(data, "name");
+  const description = memoryFrontmatterField(data, "description");
   const md = data.metadata as Record<string, unknown> | undefined;
-  const metadataType = typeof md?.type === "string" ? md.type : undefined;
+  const metadataType = memoryFrontmatterMetadataType(data);
   if (!name) {
     push(ctx, "error", rel, "frontmatter missing `name`");
   } else {

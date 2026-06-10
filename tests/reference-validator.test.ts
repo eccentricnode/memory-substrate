@@ -119,6 +119,60 @@ Flat type must be migrated before validation.
     expect(messages).toContain("orphan: not referenced from MEMORY.md");
   });
 
+  test("parses the documented strict YAML subset for topic frontmatter", () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, "project_yaml-subset.md"),
+      [
+        "---",
+        "name: yaml-subset",
+        'description: "Hash # stays because this scalar is quoted"',
+        "metadata: # strict schema block",
+        "  type: project # inline comment is ignored",
+        "---",
+        "",
+        "The parser supports the small YAML subset the schema requires.",
+        "",
+      ].join("\r\n"),
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [YAML Subset](project_yaml-subset.md) — Hash # stays because this scalar is quoted\n",
+    );
+
+    const result = validateMemoryDirectory(root);
+
+    expect(result.findings).toEqual([]);
+    expect(result.counts.error).toBe(0);
+  });
+
+  test("rejects frontmatter outside the documented strict YAML subset", () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, "project_yaml-block.md"),
+      `---
+name: yaml-block
+description: |
+  Block scalar descriptions are outside the strict subset.
+metadata: { type: project }
+---
+
+Unsupported YAML must fail closed instead of being guessed.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [YAML Block](project_yaml-block.md) — Block scalar descriptions are outside the strict subset\n",
+    );
+
+    const result = validateMemoryDirectory(root);
+    const messages = result.findings.map((finding) => finding.msg);
+
+    expect(messages).toContain("frontmatter missing `description`");
+    expect(messages).toContain("frontmatter missing `metadata.type`");
+    expect(result.counts.error).toBeGreaterThanOrEqual(2);
+  });
+
   test("enforces kebab-case topic names and duplicate normalized names", () => {
     const root = tempDir();
     writeFileSync(

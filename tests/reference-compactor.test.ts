@@ -194,9 +194,9 @@ Invalid nested type frontmatter should not create a trusted compaction section.
       join(root, "project_quoted-type.md"),
       `---
 name: quoted-type
-description: Quoted YAML metadata type should still drive compaction grouping
-metadata:
-  type: "project"
+description: "Quoted YAML metadata type should still drive compaction grouping"
+metadata: # schema block
+  type: "project" # inline comments are ignored outside quotes
 ---
 
 Quoted metadata.type is valid YAML and should match validator semantics.
