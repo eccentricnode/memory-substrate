@@ -505,7 +505,7 @@ function parseNestedMetadataType(frontmatter: string): string | undefined {
     for (const nestedLine of lines.slice(index + 1)) {
       if (/^[^\s].+/.test(nestedLine)) break;
       const match = nestedLine.match(/^[ \t]+type:\s*(.+)$/);
-      if (match?.[1]) return match[1].trim();
+      if (match?.[1]) return match[1].trim().replace(/^["']|["']$/g, "");
     }
     return undefined;
   }

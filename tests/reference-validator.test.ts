@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateMemoryDirectory } from "../reference/validator.ts";
@@ -214,6 +214,60 @@ metadata:
     expect(messages).toContain("broken link: missing.md");
     expect(messages).toContain("link escapes memory root: ../outside.md");
     expect(messages).not.toContain("broken link: https://example.com/memory.md");
+  });
+
+  test("validates angle-bracket and spaced markdown links while ignoring fenced examples", () => {
+    const root = tempDir();
+    mkdirSync(join(root, "team docs"));
+    writeFileSync(
+      join(root, "team docs", "reference_related-topic.md"),
+      `---
+name: related-topic
+description: Related reference target in a spaced directory
+metadata:
+  type: reference
+---
+
+Related target.
+`,
+    );
+    writeFileSync(
+      join(root, "project_link-forms.md"),
+      `---
+name: link-forms
+description: Markdown link forms must be parsed like routable memory pointers
+metadata:
+  type: project
+---
+
+[Angle related](<team docs/reference_related-topic.md>) is valid.
+[Spaced related](team docs/reference_related-topic.md) is also accepted by the reference validator.
+
+\`\`\`md
+[Example only](missing-from-example.md)
+[Example outside](../outside-example.md)
+\`\`\`
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Link Forms](project_link-forms.md) — Markdown link forms must be parsed like routable memory pointers",
+        "- [Related Topic](<team docs/reference_related-topic.md>) — Related reference target in a spaced directory",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validateMemoryDirectory(root);
+    const messages = result.findings.map((finding) => finding.msg);
+
+    expect(messages).not.toContain("broken link: <team docs/reference_related-topic.md>");
+    expect(messages).not.toContain("broken link: team docs/reference_related-topic.md");
+    expect(messages).not.toContain("broken link: missing-from-example.md");
+    expect(messages).not.toContain("link escapes memory root: ../outside-example.md");
+    expect(result.counts.error).toBe(0);
   });
 
   test("requires index targets to be markdown topic files", () => {

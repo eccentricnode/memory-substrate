@@ -312,6 +312,40 @@ Historical flat frontmatter should not steer worker dedupe.
     )).toBe(false);
   });
 
+  test("quoted nested metadata type is trusted for dedupe", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "project_bun-commands.md"),
+      `---
+name: bun-commands
+description: Use Bun commands for project automation
+metadata:
+  type: "project"
+---
+
+Quoted nested metadata.type should match validator semantics.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      "# Memory\n\n- [Bun commands](project_bun-commands.md) — Use Bun commands for project automation\n",
+    );
+    const worker = createDeterministicMemoryWorkerRunner();
+
+    const result = await worker.run(
+      request(
+        root,
+        "The durable decision is to use Bun for all build and test commands.",
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(topicFiles(root)).toEqual(["project_bun-commands.md"]);
+    expect(readFileSync(join(root, "project_bun-commands.md"), "utf8")).toContain(
+      "use Bun for all build and test commands",
+    );
+  });
+
   test("dry-run reports proposed paths and writes nothing", async () => {
     const root = memoryRoot();
     const before = readFileSync(join(root, "MEMORY.md"), "utf8");

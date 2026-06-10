@@ -186,4 +186,36 @@ Invalid nested type frontmatter should not create a trusted compaction section.
     expect(proposedIndex).not.toContain("## Project");
     expect(proposedIndex).not.toContain("## Team");
   });
+
+  test("trusts quoted nested metadata type for proposal grouping", () => {
+    const root = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    writeFileSync(
+      join(root, "project_quoted-type.md"),
+      `---
+name: quoted-type
+description: Quoted YAML metadata type should still drive compaction grouping
+metadata:
+  type: "project"
+---
+
+Quoted metadata.type is valid YAML and should match validator semantics.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Quoted Type](project_quoted-type.md) — Quoted YAML metadata type should still drive compaction grouping",
+        "",
+      ].join("\n"),
+    );
+
+    compactMemoryDirectory(root, { outputDir });
+    const proposedIndex = readFileSync(join(outputDir, "MEMORY.md"), "utf8");
+
+    expect(proposedIndex).toContain("## Project");
+    expect(proposedIndex).not.toContain("## Uncategorized");
+  });
 });

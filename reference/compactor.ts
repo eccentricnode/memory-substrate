@@ -122,7 +122,10 @@ function parseFrontmatter(content: string): {
     ?.trim()
     .replace(/^["']|["']$/g, "");
   const metadataBlock = frontmatter.match(/^metadata:\s*\n((?:[ \t]+.*(?:\n|$))*)/m)?.[1] ?? "";
-  const type = metadataBlock.match(/^[ \t]+type:\s*(.+)$/m)?.[1]?.trim();
+  const type = metadataBlock
+    .match(/^[ \t]+type:\s*(.+)$/m)?.[1]
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
   return { name, description, type };
 }
 
