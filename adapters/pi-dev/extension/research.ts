@@ -313,7 +313,10 @@ export async function researchMemory(
       citations: [],
     };
   }
-  if (config.error?.includes("model must be provider-qualified")) {
+  if (
+    config.error?.startsWith("memory worker model ") ||
+    config.error?.startsWith("memory research model ")
+  ) {
     return {
       status: "failed",
       found: false,

@@ -264,6 +264,25 @@ describe("pi-dev runtime config", () => {
     );
     expect(researchConfig.error).not.toContain("memory root does not exist");
   });
+
+  test("rejects provider-qualified non-codex research models before root discovery", () => {
+    const missingRoot = join(tempDir(), "missing-memory");
+
+    const config = resolveRuntimeConfig({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: missingRoot,
+        PI_MEMORY_RESEARCH_MODEL: "anthropic/claude-haiku-4-5",
+      },
+      homeDir: tempDir(),
+    });
+
+    expect(config.memoryRoot).toBeUndefined();
+    expect(config.error).toContain(
+      "memory research model must use the openai-codex provider",
+    );
+    expect(config.error).not.toContain("memory root does not exist");
+  });
 });
 
 describe("memory injection", () => {

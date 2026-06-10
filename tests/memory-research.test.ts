@@ -233,6 +233,29 @@ npm notice`);
     expect(process.calls).toHaveLength(0);
   });
 
+  test("fails before launch for provider-qualified non-codex research models", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(
+      JSON.stringify({ found: false, answer: "no", citations: [] }),
+    );
+
+    const result = await researchMemory(
+      {
+        question: "What is stored?",
+        cwd: tempDir(),
+        env: {
+          PI_MEMORY_ROOT: root,
+          PI_MEMORY_RESEARCH_MODEL: "anthropic/claude-haiku-4-5",
+        },
+      },
+      { process },
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("openai-codex provider");
+    expect(process.calls).toHaveLength(0);
+  });
+
   test("disabled and ignore modes suppress research without a memory read", async () => {
     const root = memoryRoot();
     const process = recordingProcess(JSON.stringify({ found: false, answer: "no", citations: [] }));

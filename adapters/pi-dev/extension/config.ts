@@ -68,6 +68,17 @@ export function validateProviderQualifiedModel(
   return undefined;
 }
 
+export function validateCodexResearchModel(model: string): string | undefined {
+  const shapeError = validateProviderQualifiedModel(model, "memory research model");
+  if (shapeError) return shapeError;
+
+  const provider = model.trim().slice(0, model.trim().indexOf("/"));
+  if (provider !== "openai-codex") {
+    return `memory research model must use the openai-codex provider: ${model.trim()}`;
+  }
+  return undefined;
+}
+
 export function resolveMemoryRoot(
   rawRoot: string | undefined,
   cwd: string,
@@ -127,10 +138,7 @@ export function resolveRuntimeConfig(input: RuntimeConfigInput): RuntimeConfig {
 
   const workerModelError = validateProviderQualifiedModel(model);
   if (workerModelError) return { ...base, error: workerModelError };
-  const researchModelError = validateProviderQualifiedModel(
-    researchModel,
-    "memory research model",
-  );
+  const researchModelError = validateCodexResearchModel(researchModel);
   if (researchModelError) return { ...base, error: researchModelError };
 
   const root = resolveMemoryRoot(
