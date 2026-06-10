@@ -579,7 +579,7 @@ export class MemoryExtensionCore {
     const result = await this.research({
       question: event.prompt,
       cwd: this.config.cwd,
-      env: this.env ?? process.env,
+      env: this.researchEnv(),
       homeDir: undefined,
     });
     if (result.found) {
@@ -893,14 +893,18 @@ export class MemoryExtensionCore {
     return this.research({
       question,
       cwd: this.config.cwd,
-      env: {
-        ...(this.env ?? process.env),
-        PI_MEMORY_ROOT: this.config.memoryRoot,
-        PI_MEMORY_MODEL: this.config.model,
-        PI_MEMORY_RESEARCH_MODEL: this.config.researchModel,
-      },
+      env: this.researchEnv(),
       homeDir: undefined,
     });
+  }
+
+  private researchEnv(): RuntimeEnv {
+    return {
+      ...(this.env ?? process.env),
+      PI_MEMORY_ROOT: this.config.memoryRoot,
+      PI_MEMORY_MODEL: this.config.model,
+      PI_MEMORY_RESEARCH_MODEL: this.config.researchModel,
+    };
   }
 
   private canProcessBatches(): boolean {

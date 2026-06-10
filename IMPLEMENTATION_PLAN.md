@@ -1,5 +1,10 @@
 <!-- Generated and maintained by Ralph (plan + build modes). Priority-sorted. -->
 
+- Current findings.
+  - Live harness cadence latest run: `bun run test:pi-live` passed with 8 pass, 0 fail, 890 expect() calls, 8 tests across 1 file, runtime 316.08s.
+  - Reactive research env root/model drift was found and resolved in code/tests: reactive research now uses the same explicit `PI_MEMORY_ROOT`, `PI_MEMORY_MODEL`, and `PI_MEMORY_RESEARCH_MODEL` env contract as manual research, preserving resolved root selection for subprocesses. Focused `bun test tests/config-and-injection.test.ts` passed with 27 pass, 0 fail, 96 expect() calls.
+  - Preserved unresolved non-blocking risks: no cross-process write lock; live-specific malformed draft/out-of-root behavior mostly relies on applicator unit tests; injected custom runners cannot prove no out-of-root mutations.
+
 - P2 — Live harness cadence.
   - Status: opt-in by design; `tests/pi-dev-live-integration.test.ts` is skipped unless `PI_MEMORY_INTEGRATION=1`, per `specs/07`.
   - Plan: after model/auth/preflight changes or pi.dev upgrades, run `bun run test:pi-live` intentionally and record the latest result in this plan.

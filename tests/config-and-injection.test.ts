@@ -58,9 +58,17 @@ function foundResearch(answer = "Use Bun for verification."): MemoryResearchResu
 }
 
 function recordingResearch(result: MemoryResearchResult) {
-  const calls: Array<{ question: string; cwd: string }> = [];
+  const calls: Array<{
+    question: string;
+    cwd: string;
+    env?: Record<string, string | undefined>;
+  }> = [];
   return Object.assign(
-    async (request: { question: string; cwd: string }) => {
+    async (request: {
+      question: string;
+      cwd: string;
+      env?: Record<string, string | undefined>;
+    }) => {
       calls.push(request);
       return result;
     },
@@ -536,12 +544,20 @@ describe("reactive memory trigger", () => {
   });
 
   test("gated-in research synthesis supersedes index injection", async () => {
-    const root = tempDir();
+    const cwd = tempDir();
+    const root = join(cwd, ".memory");
+    mkdirSync(root);
+    tmpRoots.push(root);
     writeIndex(root, ["- [Bun checks](project_bun.md) — index-only sentinel"]);
     const research = recordingResearch(foundResearch("Run bunx tsc and bun test."));
     const core = new MemoryExtensionCore({
-      cwd: tempDir(),
-      env: { PI_MEMORY_ROOT: root, PI_MEMORY_REACTIVE: "1" },
+      cwd,
+      env: {
+        PI_MEMORY_ROOT: ".memory",
+        PI_MEMORY_REACTIVE: "1",
+        PI_MEMORY_MODEL: DEFAULT_WORKER_MODEL,
+        PI_MEMORY_RESEARCH_MODEL: "openai-codex/gpt-5.3-codex-spark",
+      },
       research,
     });
 
@@ -551,6 +567,11 @@ describe("reactive memory trigger", () => {
     });
 
     expect(research.calls).toHaveLength(1);
+    expect(research.calls[0]?.env?.PI_MEMORY_ROOT).toBe(root);
+    expect(research.calls[0]?.env?.PI_MEMORY_MODEL).toBe(DEFAULT_WORKER_MODEL);
+    expect(research.calls[0]?.env?.PI_MEMORY_RESEARCH_MODEL).toBe(
+      "openai-codex/gpt-5.3-codex-spark",
+    );
     expect(result?.systemPrompt).toContain("Durable memory research");
     expect(result?.systemPrompt).toContain("Run bunx tsc and bun test.");
     expect(result?.systemPrompt).toContain("- project_bun.md");
