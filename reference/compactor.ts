@@ -33,6 +33,7 @@ const VALID_TYPES = new Set(["user", "feedback", "project", "reference"]);
 export type CompactionFindingKind =
   | "validator-finding"
   | "duplicate-index-entry"
+  | "consolidation-candidate"
   | "broken-index-entry"
   | "long-index-line"
   | "orphan-topic"
@@ -269,6 +270,55 @@ function collectIndexFindings(
   return findings;
 }
 
+function normalizedSemanticKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[`*_~[\]()]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function collectConsolidationFindings(topics: TopicSummary[]): CompactionFinding[] {
+  const findings: CompactionFinding[] = [];
+  const byName = new Map<string, TopicSummary[]>();
+  const byDescription = new Map<string, TopicSummary[]>();
+  for (const topic of topics) {
+    const nameKey = normalizedSemanticKey(topic.name);
+    if (nameKey) byName.set(nameKey, [...(byName.get(nameKey) ?? []), topic]);
+    const descriptionKey = normalizedSemanticKey(topic.description);
+    if (descriptionKey) {
+      byDescription.set(descriptionKey, [
+        ...(byDescription.get(descriptionKey) ?? []),
+        topic,
+      ]);
+    }
+  }
+
+  const seenGroups = new Set<string>();
+  for (const [key, group] of [
+    ...[...byName.entries()].map(
+      ([key, group]) => [`name:${key}`, group] as const,
+    ),
+    ...[...byDescription.entries()].map(
+      ([key, group]) => [`description:${key}`, group] as const,
+    ),
+  ]) {
+    if (group.length < 2) continue;
+    const paths = group.map((topic) => topic.relativePath).sort();
+    const groupKey = paths.join("\0");
+    if (seenGroups.has(groupKey)) continue;
+    seenGroups.add(groupKey);
+    findings.push({
+      kind: "consolidation-candidate",
+      file: paths[0] ?? "MEMORY.md",
+      severity: "info",
+      message: `${key.split(":")[0]} overlap may be a semantic duplicate; review for possible topic consolidation: ${paths.join(", ")}`,
+    });
+  }
+  return findings;
+}
+
 function renderProposedIndex(topics: TopicSummary[]): string {
   const groups = new Map<string, TopicSummary[]>();
   for (const topic of topics) {
@@ -316,7 +366,7 @@ function renderReport(report: CompactionReport): string {
 - Proposed index: ${report.proposedIndexLineCount} lines, ${report.proposedIndexBytes} bytes
 
 ## Why this matters
-Compaction protects the small, routable MEMORY.md index that adapters inject or search. ${proposalBoundary}
+Compaction protects the small, routable MEMORY.md index that adapters inject or search. Consolidation findings flag likely semantic duplicates for human review without automatically discarding topic detail. ${proposalBoundary}
 
 ## Findings
 ${findingLines.join("\n")}
@@ -425,6 +475,7 @@ export function compactMemoryDirectory(
       topics,
       validatorReport.findings,
     ),
+    ...collectConsolidationFindings(topics),
     ...topicFindings,
   ];
   const proposedIndex = renderProposedIndex(topics);

@@ -93,6 +93,50 @@ describe("reference compactor", () => {
     expect(reportText).toContain("orphan-topic");
   });
 
+  test("reports semantic consolidation candidates without merging topics", () => {
+    const root = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    writeTopic(
+      root,
+      "project_bun-test-command.md",
+      "bun-test-command",
+      "Run Bun tests before committing",
+    );
+    writeTopic(
+      root,
+      "feedback_bun-test-command.md",
+      "bun test command",
+      "Run Bun tests before committing",
+      "feedback",
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Bun Test Command](project_bun-test-command.md) — Run Bun tests before committing",
+        "- [Bun Test Command Feedback](feedback_bun-test-command.md) — Run Bun tests before committing",
+        "",
+      ].join("\n"),
+    );
+
+    const report = compactMemoryDirectory(root, { outputDir });
+    const proposedIndex = readFileSync(join(outputDir, "MEMORY.md"), "utf8");
+    const reportText = readFileSync(join(outputDir, "COMPACTION_REPORT.md"), "utf8");
+    const consolidation = report.findings.filter(
+      (finding) => finding.kind === "consolidation-candidate",
+    );
+
+    expect(consolidation).toHaveLength(1);
+    expect(consolidation[0]?.message).toContain(
+      "review for possible topic consolidation",
+    );
+    expect(proposedIndex).toContain("project_bun-test-command.md");
+    expect(proposedIndex).toContain("feedback_bun-test-command.md");
+    expect(reportText).toContain("Consolidation findings flag likely semantic duplicates");
+    expect(reportText).toContain("consolidation-candidate");
+  });
+
   test("fails closed when the output directory is inside the memory root", () => {
     const root = tempDir();
     writeTopic(root, "project_bun-commands.md", "bun-commands", "Use Bun for build and test commands");
