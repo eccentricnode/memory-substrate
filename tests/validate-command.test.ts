@@ -114,6 +114,41 @@ function fakePi(options: Parameters<typeof memorySubstrateExtension>[1] = {}) {
 }
 
 describe("pi-dev memory command surface", () => {
+  test("before_agent_start returns visible attributed injection message", async () => {
+    const root = memoryRoot();
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Pi memory](reference_pi-memory.md) — pi extension displays injected snippets",
+        "",
+      ].join("\n"),
+    );
+    process.env.PI_MEMORY_ROOT = root;
+    const { handlers } = fakePi();
+    const ctx = fakeContext();
+
+    handlers.get("session_start")?.({}, ctx);
+    const result = (await handlers.get("before_agent_start")?.(
+      { prompt: "What should pi memory do?", systemPrompt: "base" },
+      ctx,
+    )) as
+      | {
+          systemPrompt?: string;
+          message?: { customType?: string; content?: string; display?: boolean };
+        }
+      | undefined;
+
+    expect(result?.systemPrompt).toContain("Durable memory from memory-substrate");
+    expect(result?.systemPrompt).toContain("pi extension displays injected snippets");
+    expect(result?.message).toEqual({
+      customType: "memory-substrate-injection",
+      content: expect.stringContaining("pi extension displays injected snippets"),
+      display: true,
+    });
+  });
+
   test("core validation is suppressed in disabled mode without invoking the runner", async () => {
     let calls = 0;
     const core = new MemoryExtensionCore({

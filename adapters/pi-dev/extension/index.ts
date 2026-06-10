@@ -24,7 +24,19 @@ interface PiEventApi {
     handler: (
       event: { prompt: string; systemPrompt: string },
       ctx: PiContext,
-    ) => { systemPrompt?: string } | undefined | Promise<{ systemPrompt?: string } | undefined>,
+    ) =>
+      | {
+          systemPrompt?: string;
+          message?: { customType: string; content: string; display: boolean };
+        }
+      | undefined
+      | Promise<
+          | {
+              systemPrompt?: string;
+              message?: { customType: string; content: string; display: boolean };
+            }
+          | undefined
+        >,
   ): void;
   on(
     event: "agent_end",

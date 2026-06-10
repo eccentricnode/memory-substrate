@@ -89,6 +89,11 @@ export interface BeforeAgentStartEvent {
 
 export interface BeforeAgentStartResult {
   systemPrompt?: string;
+  message?: {
+    customType: string;
+    content: string;
+    display: boolean;
+  };
 }
 
 export interface AgentEndEvent {
@@ -211,6 +216,7 @@ const QUEUE_AUDIT_TYPE = "memory-substrate-queue";
 const WORKER_AUDIT_TYPE = "memory-substrate-worker-run";
 const MODE_AUDIT_TYPE = "memory-substrate-mode";
 const INJECTION_AUDIT_TYPE = "memory-substrate-injection";
+const INJECTION_MESSAGE_TYPE = "memory-substrate-injection";
 const REACTIVE_AUDIT_TYPE = "memory-substrate-reactive-research";
 const AUDIT_STRING_CAP = 300;
 const AUDIT_ARRAY_ITEM_CAP = 5;
@@ -643,6 +649,11 @@ export class MemoryExtensionCore {
     const base = systemPrompt.trimEnd();
     return {
       systemPrompt: base ? `${base}\n\n${injection.text}` : injection.text,
+      message: {
+        customType: INJECTION_MESSAGE_TYPE,
+        content: injection.text,
+        display: true,
+      },
     };
   }
 

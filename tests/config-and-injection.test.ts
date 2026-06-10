@@ -442,6 +442,13 @@ describe("memory injection", () => {
       "- [Pi memory](reference_pi-memory.md) — pi extension uses MEMORY.md snippets",
     );
     expect(result?.systemPrompt).not.toContain("topic body");
+    expect(result?.message).toEqual({
+      customType: "memory-substrate-injection",
+      content: expect.stringContaining(
+        "- [Pi memory](reference_pi-memory.md) — pi extension uses MEMORY.md snippets",
+      ),
+      display: true,
+    });
   });
 
   test("injection is capped at twelve index lines", () => {
@@ -595,6 +602,11 @@ describe("reactive memory trigger", () => {
     expect(result?.systemPrompt).toContain("Run bunx tsc and bun test.");
     expect(result?.systemPrompt).toContain("- project_bun.md");
     expect(result?.systemPrompt).not.toContain("index-only sentinel");
+    expect(result?.message).toEqual({
+      customType: "memory-substrate-injection",
+      content: expect.stringContaining("Run bunx tsc and bun test."),
+      display: true,
+    });
   });
 
   test("gated-out reactive mode falls back to index-only injection", async () => {
@@ -615,6 +627,11 @@ describe("reactive memory trigger", () => {
     expect(research.calls).toHaveLength(0);
     expect(result?.systemPrompt).toContain("Durable memory from memory-substrate");
     expect(result?.systemPrompt).toContain("index-only sentinel");
+    expect(result?.message).toEqual({
+      customType: "memory-substrate-injection",
+      content: expect.stringContaining("index-only sentinel"),
+      display: true,
+    });
   });
 
   test("not-found research injects no synthesis and may fall back to index lines", async () => {
