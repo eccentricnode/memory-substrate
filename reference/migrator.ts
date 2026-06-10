@@ -18,6 +18,7 @@ import {
   validateMemoryDirectory,
   type Finding as ValidatorFinding,
 } from "./validator.ts";
+import { normalizeMarkdownTarget } from "./markdown-links.ts";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 type MemoryType = typeof VALID_TYPES[number];
@@ -121,6 +122,10 @@ function isExternalLink(target: string): boolean {
   return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(target);
 }
 
+function toMarkdownTarget(path: string): string {
+  return /\s/.test(path) ? `<${path}>` : path;
+}
+
 // Topic files are renamed during migration (type prefix + slugified frontmatter
 // name). Intra-memory markdown links in topic bodies still point at the old
 // filenames, so re-point any link whose target was renamed. Without this the
@@ -135,8 +140,9 @@ function rewriteBodyLinks(
   const sourceDir = dirname(topic.sourceRelativePath);
   let rewrites = 0;
   const rewritten = topic.body.replace(
-    /(!?\[[^\]\n]*\]\()([^)\s]+)((?:\s+"[^"]*")?\))/g,
-    (whole: string, pre: string, target: string, post: string) => {
+    /(!?\[[^\]\n]*\]\()([^)\n]+)(\))/g,
+    (whole: string, pre: string, rawTarget: string, post: string) => {
+      const target = normalizeMarkdownTarget(rawTarget);
       if (isExternalLink(target)) return whole;
       const hashIndex = target.indexOf("#");
       const pathOnly = hashIndex === -1 ? target : target.slice(0, hashIndex);
@@ -148,7 +154,7 @@ function rewriteBodyLinks(
       const renamed = renameBySourceRel.get(targetRel);
       if (!renamed || renamed === targetRel) return whole;
       rewrites += 1;
-      return `${pre}${renamed}${fragment}${post}`;
+      return `${pre}${toMarkdownTarget(`${renamed}${fragment}`)}${post}`;
     },
   );
   if (rewrites > 0) {
@@ -309,7 +315,7 @@ function parseIndexEntries(index: string): IndexEntry[] {
     .split(/\r?\n/)
     .flatMap((line, indexLine) => {
       const match = line.match(/^- \[([^\]]+)\]\(([^)]+)\)\s*(?:—|--)?\s*(.*)$/);
-      const target = match?.[2];
+      const target = normalizeMarkdownTarget(match?.[2] ?? "");
       if (!target) return [];
       return [{ target, line: indexLine + 1, raw: line }];
     });

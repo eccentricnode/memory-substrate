@@ -150,6 +150,47 @@ describe("reference compactor", () => {
     expect(validation.topicFileCount).toBe(1);
   });
 
+  test("parses spaced and angle-bracket index pointers like the validator", () => {
+    const root = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    writeTopic(
+      root,
+      "team docs/project_spaced-topic.md",
+      "spaced-topic",
+      "Spaced index targets must round-trip through compaction",
+    );
+    writeTopic(
+      root,
+      "team docs/reference_related-topic.md",
+      "related-topic",
+      "Angle-bracket index targets must round-trip through compaction",
+      "reference",
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Spaced Topic](team docs/project_spaced-topic.md) — Spaced index targets must round-trip through compaction",
+        "- [Related Topic](<team docs/reference_related-topic.md>) — Angle-bracket index targets must round-trip through compaction",
+        "",
+      ].join("\n"),
+    );
+
+    const validation = validateMemoryDirectory(root);
+    const report = compactMemoryDirectory(root, { outputDir });
+    const brokenEntries = report.findings.filter(
+      (finding) => finding.kind === "broken-index-entry",
+    );
+    const orphanEntries = report.findings.filter(
+      (finding) => finding.kind === "orphan-topic",
+    );
+
+    expect(validation.counts.error).toBe(0);
+    expect(brokenEntries).toEqual([]);
+    expect(orphanEntries).toEqual([]);
+  });
+
   test("does not trust flat or invalid frontmatter type for proposal grouping", () => {
     const root = tempDir();
     const outputDir = join(tempDir(), "proposal");

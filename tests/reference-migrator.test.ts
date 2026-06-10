@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -179,6 +180,65 @@ Beta builds on [Alpha](project_alpha.md).
     expect(alpha).toContain("[external](https://example.com)");
     const beta = readFileSync(join(outputMemoryRoot, "project_beta-renamed.md"), "utf8");
     expect(beta).toContain("[Alpha](project_alpha-renamed.md)");
+  });
+
+  test("normalizes spaced and angle-bracket source index and body links", () => {
+    const sourceRoot = tempDir();
+    const outputDir = join(tempDir(), "proposal");
+    mkdirSync(join(sourceRoot, "team docs"));
+    writeFileSync(
+      join(sourceRoot, "team docs", "project_alpha space.md"),
+      `---
+name: alpha-space-renamed
+description: Alpha has a spaced source path
+metadata:
+  type: project
+---
+
+Alpha points to [Beta](<project_beta space.md#details>).
+`,
+    );
+    writeFileSync(
+      join(sourceRoot, "team docs", "project_beta space.md"),
+      `---
+name: beta-space-renamed
+description: Beta has a spaced source path
+metadata:
+  type: project
+---
+
+Beta points to [Alpha](project_alpha space.md).
+`,
+    );
+    writeFileSync(
+      join(sourceRoot, "MEMORY.md"),
+      `# Memory Index
+
+## Projects
+- [Alpha](<team docs/project_alpha space.md>) — Alpha has a spaced source path
+- [Beta](team docs/project_beta space.md) — Beta has a spaced source path
+`,
+    );
+
+    const report = migratePaiMemoryDirectory(sourceRoot, outputDir);
+    const outputMemoryRoot = join(outputDir, "memory");
+
+    expect(validateMemoryDirectory(outputMemoryRoot).counts.error).toBe(0);
+    expect(
+      report.findings.filter((finding) => finding.kind === "index-broken-pointer"),
+    ).toEqual([]);
+    expect(report.findings.some((finding) => finding.kind === "body-link-rewritten")).toBe(true);
+
+    const alpha = readFileSync(
+      join(outputMemoryRoot, "project_alpha-space-renamed.md"),
+      "utf8",
+    );
+    expect(alpha).toContain("[Beta](project_beta-space-renamed.md#details)");
+    const beta = readFileSync(
+      join(outputMemoryRoot, "project_beta-space-renamed.md"),
+      "utf8",
+    );
+    expect(beta).toContain("[Alpha](project_alpha-space-renamed.md)");
   });
 
   test("migrates imported markdown without a source index while reporting the incomplete source", () => {

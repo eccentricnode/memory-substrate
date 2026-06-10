@@ -17,6 +17,11 @@ import {
   memoryFrontmatterMetadataType,
   parseMemoryFrontmatter,
 } from "./frontmatter.ts";
+import {
+  findMarkdownLinks,
+  normalizeMarkdownTarget,
+  type MarkdownLink,
+} from "./markdown-links.ts";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
 type MemoryType = typeof VALID_TYPES[number];
@@ -121,44 +126,6 @@ function findWikiLinks(content: string): string[] {
   return [...content.matchAll(/\[\[([^\]\n]+)\]\]/g)]
     .map((match) => match[1])
     .filter((name): name is string => Boolean(name));
-}
-
-interface MarkdownLink {
-  target: string;
-  line: number;
-}
-
-function lineForOffset(content: string, offset: number): number {
-  return content.slice(0, offset).split("\n").length;
-}
-
-function isOffsetInFencedCode(content: string, offset: number): boolean {
-  let inFence = false;
-  let currentOffset = 0;
-  for (const line of content.split("\n")) {
-    const lineEndOffset = currentOffset + line.length;
-    if (offset >= currentOffset && offset <= lineEndOffset) return inFence;
-    if (/^ {0,3}(?:```|~~~)/.test(line)) inFence = !inFence;
-    currentOffset = lineEndOffset + 1;
-  }
-  return inFence;
-}
-
-function normalizeMarkdownTarget(target: string): string {
-  const trimmed = target.trim();
-  const angleMatch = trimmed.match(/^<([^>\n]*)>(?:\s+["'][^"']*["'])?$/);
-  if (angleMatch) return angleMatch[1] ?? "";
-  return trimmed.replace(/\s+["'][^"']*["']\s*$/, "");
-}
-
-function findMarkdownLinks(content: string): MarkdownLink[] {
-  return [...content.matchAll(/!?\[[^\]\n]*\]\(([^)\n]+)\)/g)]
-    .filter((match) => !isOffsetInFencedCode(content, match.index ?? 0))
-    .map((match) => ({
-      target: normalizeMarkdownTarget(match[1] ?? ""),
-      line: lineForOffset(content, match.index ?? 0),
-    }))
-    .filter((link) => link.target.length > 0);
 }
 
 function isExternalLink(target: string): boolean {

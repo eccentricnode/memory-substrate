@@ -23,6 +23,7 @@ import {
   memoryFrontmatterMetadataType,
   parseMemoryFrontmatter,
 } from "./frontmatter.ts";
+import { normalizeMarkdownTarget } from "./markdown-links.ts";
 
 const INDEX_LINE_CAP = 150;
 const INDEX_BYTE_CAP = 25 * 1024;
@@ -188,7 +189,7 @@ function parseIndexEntries(index: string): IndexEntry[] {
       const match = line.match(/^- \[([^\]]+)\]\(([^)]+)\)\s*(?:—|--)?\s*(.*)$/);
       if (!match) return [];
       const title = match[1];
-      const target = match[2];
+      const target = normalizeMarkdownTarget(match[2] ?? "");
       if (!title || !target) return [];
       return [
         {
