@@ -463,10 +463,31 @@ function durableFactFromText(text: string): string | undefined {
   return undefined;
 }
 
+function isExcludedMemoryFact(fact: string, sourceText: string): boolean {
+  const text = `${fact} ${sourceText}`.toLowerCase();
+  if (/\b(agents|claude)\.md\b/.test(text)) return true;
+  if (/\b(git log|git commit|commits? [a-f0-9]{7,40}|changed by|who changed|who-changed-what)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(debugging recipe|debug recipe|fix is in code|fix belongs in code)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(ephemeral|temporary|for this session|current session|right now)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(?:[\w.-]+\/)+[\w.-]+\.(?:ts|tsx|js|jsx|md|json|yaml|yml|toml|rs|go|py|java|kt|swift|css|scss|html)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(code pattern|coding pattern|convention|file path|derivable from (?:the )?(?:repo|project|git))\b/.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 function defaultDecideWrites(request: MemoryWorkerRequest): MemoryWriteDraft[] {
   const text = batchText(request);
   const fact = durableFactFromText(text);
-  if (!fact) return [];
+  if (!fact || isExcludedMemoryFact(fact, text)) return [];
   const type = classifyMemory(fact);
   const description = oneLine(fact, DESCRIPTION_CAP);
   const name = slugify(description);
@@ -1354,6 +1375,7 @@ Write only for durable triggers:
 Never save progress chatter, code patterns, conventions, file paths or facts derivable
 from the repo, git history or who-changed-what, debugging recipes where the fix belongs
 in code, ephemeral session state, or content already present in always-loaded host files.
+These exclusions still apply when the user explicitly asks to remember excluded content.
 If an existing memory covers the same subject, return an upsert draft with that existing
 relativePath so the host updates it instead of creating a duplicate. If an existing memory
 is stale or contradicted, return a corrected upsert for that relativePath or a delete draft.

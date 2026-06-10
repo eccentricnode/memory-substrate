@@ -54,6 +54,10 @@ metadata:
   convention, `name` MUST match the stem after the `<type>_` prefix (e.g.,
   `feedback_foo.md` -> `name: foo`). Why: links and dedupe need a stable cross-adapter
   slug, while filenames may carry adapter routing or category hints.
+- `name` MUST be unique across all topic files after slug normalization (trim,
+  lowercase, replace non-alphanumeric runs with `-`, collapse repeated `-`, and trim
+  leading/trailing `-`). Why: `[[name]]` links and update-by-name dedupe require one
+  canonical target, regardless of type prefix or subdirectory.
 - `description` MUST be a single line, ≤200 characters, no markdown.
 - `metadata.type` MUST be one of the four category values. Adapters MAY warn on unrecognized types; they MUST NOT silently coerce.
 
@@ -83,8 +87,15 @@ metadata:
 
 ### 2.6 Caps and validation
 
-- Adapters MUST provide a `validate` operation that checks: frontmatter presence, type validity, index line length, index total length, filename uniqueness, broken markdown links.
+- Adapters MUST provide a `validate` operation that checks: frontmatter presence,
+  type validity, topic-name slug validity and normalized uniqueness, index line length,
+  index total length, filename uniqueness, broken markdown links.
 - Cap violations SHOULD be reported as warnings during v0.1. v1.0 MAY harden warnings into hard failures.
+- The v0.1 warning rule describes diagnostic validation of an existing memory
+  directory; it is not permission to apply a new invalid write. Adapters that implement
+  write-time validation or declare stricter active caps MAY refuse a proposed write before
+  mutation when applying it would create over-cap content, and MUST document those hard
+  refusal boundaries in the adapter binding.
 
 ---
 

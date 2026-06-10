@@ -52,8 +52,12 @@ on SFPAI and a per-turn model call defeats the gate.)
 
 - **Opt-in, default OFF** — a config flag (e.g. `PI_MEMORY_REACTIVE=1`). When off,
   behavior is exactly today's bounded index injection.
-- Honors disabled / ignore / dry-run. **Dry-run** reports what it *would* fire and
-  inject, writing/injecting nothing.
+- Honors disabled / ignore / dry-run. For a gated-in reactive turn, **dry-run** MUST NOT
+  call the research sub-agent and MUST NOT inject reactive research output. Its report
+  surface is the pi.dev extension audit record, not the system prompt: append a
+  `memory-substrate-reactive-research` record with `action: "dry-run"`, gate `reason`,
+  `topScore`, `wouldInject`, and timestamp. Because no child runs, dry-run does not
+  include synthesized answer text or citations.
 - Recursion guard: the research child already runs with `PI_MEMORY_ENABLED=0`, so
   the trigger cannot fire inside its own sub-agent. The trigger MUST also never
   fire more than once per turn.

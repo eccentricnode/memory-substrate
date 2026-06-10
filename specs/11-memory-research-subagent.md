@@ -48,10 +48,13 @@ Both paths call one shared `researchMemory(question, ctx)` orchestrator.
   child env in this pi.dev version; see `worker.ts:1506`).
 - Child env sets **`PI_MEMORY_ENABLED=0`** (recursion guard, so the research
   sub-agent cannot trigger its own research/worker — `worker.ts:109`).
-- Model is **provider-qualified** and validated (reuse shared
-  `validateProviderQualifiedModel` in `config.ts` for worker/research); default to the same codex
-  model as the worker; `PI_MEMORY_MODEL` (or a dedicated `PI_MEMORY_RESEARCH_MODEL`)
-  overrides; preflight reachability before sending the question.
+- Model is **provider-qualified** and validated before root discovery or subprocess
+  launch. Research model precedence is `PI_MEMORY_RESEARCH_MODEL` when set, otherwise
+  `PI_MEMORY_MODEL`, otherwise the worker's codex default. Regardless of which setting
+  supplies it, the research model MUST use the `openai-codex` provider; bare model IDs
+  and provider-qualified non-codex IDs fail closed before launch. This codex-only rule is
+  specific to the research sub-agent; worker model resolution remains governed by spec 07.
+  Preflight reachability happens before sending the question.
 - **Tools differ from the worker.** The worker is `--no-tools`; the research
   sub-agent needs **read + search**, so allowlist read + a search capability and
   **deny write/edit** (e.g. `--tools read,bash` with a no-write prompt, or a
@@ -65,7 +68,8 @@ Both paths call one shared `researchMemory(question, ctx)` orchestrator.
   tool-enabled agent writing to the vault is the exact failure the worker avoided
   by being `--no-tools`; here we keep the capability but forbid mutation.
 - Recursion guard (`PI_MEMORY_ENABLED=0`) as above.
-- codex-only model; Anthropic is out (account/policy).
+- codex-only model for every research override; Anthropic/non-codex providers are out
+  (account/policy).
 - Honor disabled / ignore modes (no research when memory is disabled), same gate
   the other commands use (`memoryDisabled(ctx, options)`).
 

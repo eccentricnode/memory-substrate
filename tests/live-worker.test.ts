@@ -262,6 +262,48 @@ describe("live pi memory worker runner", () => {
     );
   });
 
+  test("does not apply explicit-save fallback to always-loaded host file content", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({
+      process,
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(
+      request(root, false, DEFAULT_WORKER_MODEL, [
+        "Remember that AGENTS.md says to use Bun for every build and test command.",
+      ]),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("no memory written");
+    expect(result.stdout).not.toContain("explicit-save fallback");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
+  test("does not apply explicit-save fallback to derivable repo file paths", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({
+      process,
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(
+      request(root, false, DEFAULT_WORKER_MODEL, [
+        "Remember that adapters/pi-dev/extension/worker.ts contains the worker implementation.",
+      ]),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("no memory written");
+    expect(result.stdout).not.toContain("explicit-save fallback");
+    expect(topicFiles(root)).toEqual([]);
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("# Memory\n");
+  });
+
   test("does not apply deterministic fallback for non-explicit no-draft live decisions", async () => {
     const root = memoryRoot();
     const process = recordingProcess(JSON.stringify({ drafts: [] }));
@@ -294,6 +336,7 @@ describe("live pi memory worker runner", () => {
     expect(prompt).toContain("Never save progress chatter");
     expect(prompt).toContain("code patterns, conventions, file paths or facts derivable");
     expect(prompt).toContain("content already present in always-loaded host files");
+    expect(prompt).toContain("exclusions still apply when the user explicitly asks");
     expect(prompt).toContain("updates it instead of creating a duplicate");
     expect(prompt).toContain("stale or contradicted");
     expect(prompt).toContain("1. write or edit the topic file under the memory root");
