@@ -48,6 +48,8 @@ export interface MemoryResearchOptions {
 }
 
 const RESEARCH_TIMEOUT_MS = 120_000;
+const RESEARCH_ANSWER_MAX_BYTES = 2_000;
+const RESEARCH_ANSWER_MAX_LINES = 12;
 const RESEARCH_REACHABILITY_PROMPT =
   "Memory research model reachability check. Reply exactly: OK";
 const RESEARCH_TOOL_EXTENSION = fileURLToPath(new URL("./research-tools.ts", import.meta.url));
@@ -182,10 +184,41 @@ matching memory, say so.
 
 Return exactly one JSON object with no markdown fences or commentary:
 {"found":true,"answer":"short synthesis","citations":["relative-topic.md"]}
+The answer must be at most ${RESEARCH_ANSWER_MAX_LINES} lines and ${RESEARCH_ANSWER_MAX_BYTES} bytes.
 
 Question:
 ${question}
 `;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  const suffix = "...";
+  const suffixBytes = Buffer.byteLength(suffix, "utf8");
+  let out = "";
+  let used = 0;
+  for (const char of value) {
+    const bytes = Buffer.byteLength(char, "utf8");
+    if (used + bytes + suffixBytes > maxBytes) break;
+    out += char;
+    used += bytes;
+  }
+  return `${out.trimEnd()}${suffix}`;
+}
+
+function boundedResearchAnswer(answer: string): string {
+  const cleaned = answer
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .split("\n")
+    .slice(0, RESEARCH_ANSWER_MAX_LINES)
+    .map((line) => line.replace(/[ \t]+/g, " ").trimEnd())
+    .join("\n")
+    .trim();
+  if (!cleaned) {
+    throw new Error("memory research JSON missing answer");
+  }
+  return truncateUtf8(cleaned, RESEARCH_ANSWER_MAX_BYTES);
 }
 
 function parseResearchPayload(stdout: string): {
@@ -212,7 +245,7 @@ function parseResearchPayload(stdout: string): {
   }
   return {
     found: record.found,
-    answer: record.answer.trim(),
+    answer: boundedResearchAnswer(record.answer),
     citations: record.citations.map((item) => item.trim()).filter(Boolean),
   };
 }

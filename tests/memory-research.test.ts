@@ -190,6 +190,38 @@ npm notice`);
     expect(result.error).toContain("invalid memory research citation");
   });
 
+  test("bounds and sanitizes research answers before surfacing them", async () => {
+    const root = memoryRoot();
+    writeTopic(root, "project_bun.md", "bun", "Bun is the project build command");
+    const longLines = Array.from(
+      { length: 20 },
+      (_, index) => `line ${index} ${"\u001b".repeat(5)} ${"x".repeat(260)}`,
+    ).join("\n");
+    const researchProcess = recordingProcess(
+      JSON.stringify({
+        found: true,
+        answer: `\u0000${longLines}`,
+        citations: ["project_bun.md"],
+      }),
+    );
+
+    const result = await researchMemory(
+      {
+        question: "What build command should be used?",
+        cwd: tempDir(),
+        env: { PI_MEMORY_ROOT: root },
+      },
+      { process: researchProcess },
+    );
+
+    expect(result.status).toBe("found");
+    expect(Buffer.byteLength(result.answer, "utf8")).toBeLessThanOrEqual(2_000);
+    expect(result.answer.split("\n").length).toBeLessThanOrEqual(12);
+    expect(result.answer).not.toContain("\u0000");
+    expect(result.answer).not.toContain("\u001b");
+    expect(result.answer.endsWith("...")).toBe(true);
+  });
+
   test("honors not-found responses without inventing citations", async () => {
     const root = memoryRoot();
     const researchProcess = recordingProcess(
