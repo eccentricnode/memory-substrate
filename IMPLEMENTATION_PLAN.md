@@ -2,7 +2,9 @@
 
 - P2 — Ignore mode needs an operator clear path.
   - Status: open; prompt-triggered ignore mode has no explicit operator command/path to clear it within the session.
+  - Related bug: `/memory-research` and the `memory_research` tool call `researchMemory` with process/env config instead of core/session ignored state, so prompt-triggered ignore may not suppress manual research unless `PI_MEMORY_IGNORE=1` is set.
   - Plan: define and implement a clear/resume command or prompt phrase, with audit output proving when memory remains ignored versus re-enabled.
+    Include research command/tool suppression while prompt ignore remains active.
 
 - P2 — Worker draft action naming compatibility.
   - Status: open; `specs/08` describes create-or-update proposals while implementation uses `action: "upsert"` as the JSON contract.
