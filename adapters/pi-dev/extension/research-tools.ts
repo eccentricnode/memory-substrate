@@ -22,6 +22,15 @@ const MAX_GREP_MATCHES = 40;
 const MAX_LIST_ENTRIES = 200;
 
 function memoryRoot(): string {
+  if (
+    process.env.PI_MEMORY_ENABLED === "0" &&
+    process.env.PI_MEMORY_RESEARCH_TOOLS !== "1"
+  ) {
+    throw new Error("memory research tools disabled by PI_MEMORY_ENABLED=0");
+  }
+  if (process.env.PI_MEMORY_IGNORE === "1") {
+    throw new Error("memory research tools disabled by PI_MEMORY_IGNORE=1");
+  }
   const root = process.env.PI_MEMORY_ROOT;
   if (!root) throw new Error("PI_MEMORY_ROOT is required");
   const realRoot = realpathSync(root);

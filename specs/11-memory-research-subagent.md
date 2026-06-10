@@ -47,7 +47,10 @@ Both paths call one shared `researchMemory(question, ctx)` orchestrator.
 - Spawn with `spawn` from `node:child_process` — **not** `pi.exec` (it cannot set
   child env in this pi.dev version; see `worker.ts:1506`).
 - Child env sets **`PI_MEMORY_ENABLED=0`** (recursion guard, so the research
-  sub-agent cannot trigger its own research/worker — `worker.ts:109`).
+  sub-agent cannot trigger its own research/worker — `worker.ts:109`) and a
+  narrow `PI_MEMORY_RESEARCH_TOOLS=1` capability for the allowlisted read tools.
+  Direct/standalone loads of those tools with `PI_MEMORY_ENABLED=0` MUST fail
+  closed unless that launcher-owned capability is present.
 - Model is **provider-qualified** and validated before root discovery or subprocess
   launch. Research model precedence is `PI_MEMORY_RESEARCH_MODEL` when set, otherwise
   `PI_MEMORY_MODEL`, otherwise the worker's codex default. Regardless of which setting

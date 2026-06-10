@@ -18,6 +18,7 @@ const envKeys = [
   "PI_MEMORY_IGNORE",
   "PI_MEMORY_MODEL",
   "PI_MEMORY_RESEARCH_MODEL",
+  "PI_MEMORY_RESEARCH_TOOLS",
 ];
 const savedEnv = new Map<string, string | undefined>();
 
@@ -115,6 +116,7 @@ describe("memory research sub-agent", () => {
     expect(call?.command).toBe("pi");
     expect(call?.options.cwd).toBe(root);
     expect(call?.options.env.PI_MEMORY_ENABLED).toBe("0");
+    expect(call?.options.env.PI_MEMORY_RESEARCH_TOOLS).toBe("1");
     expect(call?.options.env.PI_MEMORY_ROOT).toBe(root);
     expect(call?.args).toContain("--print");
     expect(call?.args).toContain("--no-builtin-tools");
@@ -316,6 +318,47 @@ npm notice`);
 });
 
 describe("root-confined memory research tools", () => {
+  test("direct tool loads fail closed when memory is disabled or ignored", async () => {
+    const root = memoryRoot();
+    process.env.PI_MEMORY_ROOT = root;
+    const tools = new Map<
+      string,
+      {
+        execute(
+          toolCallId: string,
+          params: unknown,
+          signal: unknown,
+          onUpdate: unknown,
+          ctx: unknown,
+        ): Promise<{ content: Array<{ type: "text"; text: string }>; details: unknown }>;
+      }
+    >();
+
+    memoryResearchTools({
+      registerTool(definition) {
+        tools.set(definition.name, definition);
+      },
+    });
+
+    process.env.PI_MEMORY_ENABLED = "0";
+    await expect(
+      tools.get("memory_index")?.execute("tool-disabled", {}, undefined, undefined, {}),
+    ).rejects.toThrow("PI_MEMORY_ENABLED=0");
+
+    process.env.PI_MEMORY_RESEARCH_TOOLS = "1";
+    const allowed = await tools
+      .get("memory_index")
+      ?.execute("tool-allowed", {}, undefined, undefined, {});
+    expect(allowed?.content[0]?.text).toContain("# Memory");
+
+    delete process.env.PI_MEMORY_ENABLED;
+    delete process.env.PI_MEMORY_RESEARCH_TOOLS;
+    process.env.PI_MEMORY_IGNORE = "1";
+    await expect(
+      tools.get("memory_index")?.execute("tool-ignored", {}, undefined, undefined, {}),
+    ).rejects.toThrow("PI_MEMORY_IGNORE=1");
+  });
+
   test("read/search tools only expose markdown files inside PI_MEMORY_ROOT", async () => {
     const root = memoryRoot();
     const outside = tempDir();

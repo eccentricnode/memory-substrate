@@ -380,6 +380,7 @@ export async function researchMemory(
       ...RECURSION_GUARD_ENV,
       PI_MEMORY_ROOT: config.memoryRoot,
       PI_MEMORY_MODEL: model,
+      PI_MEMORY_RESEARCH_TOOLS: "1",
     }),
     timeoutMs,
   };
