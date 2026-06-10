@@ -119,6 +119,31 @@ Flat type must be migrated before validation.
     expect(messages).toContain("orphan: not referenced from MEMORY.md");
   });
 
+  test("flags YAML-shaped non-pointer lines in MEMORY.md", () => {
+    const root = tempDir();
+    writeValidMemory(root);
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "name: stray-frontmatter",
+        "metadata:",
+        "- [Bun commands](project_bun-commands.md) — Use Bun for build and test commands",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validateMemoryDirectory(root);
+    const yamlLineFindings = result.findings.filter(
+      (finding) =>
+        finding.file === "MEMORY.md" &&
+        finding.msg === "invalid index entry line",
+    );
+
+    expect(yamlLineFindings.map((finding) => finding.line)).toEqual([3, 4]);
+  });
+
   test("parses the documented strict YAML subset for topic frontmatter", () => {
     const root = tempDir();
     writeFileSync(

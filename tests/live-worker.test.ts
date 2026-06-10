@@ -41,6 +41,9 @@ function request(
   root: string,
   dryRun = false,
   model = DEFAULT_WORKER_MODEL,
+  messages: unknown[] = [
+    "The durable decision is to keep live memory writes root-confined.",
+  ],
 ): MemoryWorkerRequest {
   return {
     batchId: "batch-1",
@@ -59,10 +62,8 @@ function request(
         id: "item-1",
         trigger: "agent_end",
         createdAt: 1,
-        messageCount: 1,
-        messages: [
-          "The durable decision is to keep live memory writes root-confined.",
-        ],
+        messageCount: messages.length,
+        messages,
       },
     ],
   };
@@ -233,6 +234,47 @@ describe("live pi memory worker runner", () => {
     expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
       "project_alias-action-compatibility.md",
     );
+  });
+
+  test("applies deterministic fallback when live worker omits drafts for explicit remember requests", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({
+      process,
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(
+      request(root, false, DEFAULT_WORKER_MODEL, [
+        "Remember that live explicit-save requests must not disappear when the worker returns no drafts.",
+      ]),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("explicit-save fallback");
+    const topics = topicFiles(root);
+    expect(topics).toHaveLength(1);
+    expect(topics[0]).toStartWith(
+      "project_live-explicit-save-requests-must-not-disappear",
+    );
+    expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toContain(
+      "live explicit-save requests must not disappear",
+    );
+  });
+
+  test("does not apply deterministic fallback for non-explicit no-draft live decisions", async () => {
+    const root = memoryRoot();
+    const process = recordingProcess(JSON.stringify({ drafts: [] }));
+    const worker = createLivePiMemoryWorkerRunner({
+      process,
+      validate: async () => ({ exitCode: 0, stdout: "ok" }),
+    });
+
+    const result = await worker.run(request(root));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("no memory written");
+    expect(topicFiles(root)).toEqual([]);
   });
 
   test("live worker prompt carries the concrete write protocol", async () => {

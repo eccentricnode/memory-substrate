@@ -299,8 +299,7 @@ function checkIndex(ctx: ValidationContext) {
       trimmed === "" ||
       trimmed.startsWith("#") ||
       trimmed.startsWith("<!--") ||
-      trimmed === "---" ||
-      /^[A-Za-z_][A-Za-z0-9_-]*:\s*/.test(trimmed)
+      trimmed === "---"
     ) {
       return;
     }

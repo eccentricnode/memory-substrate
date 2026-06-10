@@ -498,6 +498,12 @@ function defaultDecideWrites(request: MemoryWorkerRequest): MemoryWriteDraft[] {
   ];
 }
 
+function explicitSaveFallbackDrafts(request: MemoryWorkerRequest): MemoryWriteDraft[] {
+  const text = batchText(request);
+  if (!/\bremember\b/i.test(text)) return [];
+  return defaultDecideWrites(request);
+}
+
 function topicFiles(root: string): string[] {
   const out: string[] = [];
   const realRoot = realpathSync(root);
@@ -1765,13 +1771,24 @@ export function createLivePiMemoryWorkerRunner(
       }
 
       try {
-        const drafts = parseLiveWorkerDrafts(processResult.stdout);
+        const workerDrafts = parseLiveWorkerDrafts(processResult.stdout);
+        const fallbackDrafts =
+          workerDrafts.length === 0 ? explicitSaveFallbackDrafts(request) : [];
+        const drafts = workerDrafts.length > 0 ? workerDrafts : fallbackDrafts;
         const result = await applyMemoryWriteDrafts(request, drafts, {
           validate: options.validate,
         });
         return {
           ...result,
-          stdout: [processResult.stdout.trim(), result.stdout].filter(Boolean).join("\n"),
+          stdout: [
+            processResult.stdout.trim(),
+            fallbackDrafts.length > 0
+              ? "live worker returned no drafts for an explicit remember request; applied deterministic explicit-save fallback"
+              : undefined,
+            result.stdout,
+          ]
+            .filter(Boolean)
+            .join("\n"),
         };
       } catch (error) {
         return {
