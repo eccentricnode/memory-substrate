@@ -119,6 +119,55 @@ Flat type must be migrated before validation.
     expect(messages).toContain("orphan: not referenced from MEMORY.md");
   });
 
+  test("enforces kebab-case topic names and duplicate normalized names", () => {
+    const root = tempDir();
+    writeFileSync(
+      join(root, "project_Foo Bar.md"),
+      `---
+name: Foo Bar
+description: Invalid slug with spaces and uppercase
+metadata:
+  type: project
+---
+
+Invalid slug.
+`,
+    );
+    writeFileSync(
+      join(root, "reference_foo-bar.md"),
+      `---
+name: foo-bar
+description: Same slug after normalization
+metadata:
+  type: reference
+---
+
+Duplicate normalized slug.
+`,
+    );
+    writeFileSync(
+      join(root, "MEMORY.md"),
+      [
+        "# Memory",
+        "",
+        "- [Foo Bar](project_Foo Bar.md) — Invalid slug with spaces and uppercase",
+        "- [Foo Bar Reference](reference_foo-bar.md) — Same slug after normalization",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validateMemoryDirectory(root);
+    const messages = result.findings.map((finding) => finding.msg);
+
+    expect(messages).toContain("frontmatter `name` must be a kebab-case slug");
+    expect(
+      messages.some((message) =>
+        message.startsWith("duplicate topic name after slug normalization: foo-bar already used by "),
+      ),
+    ).toBe(true);
+    expect(result.counts.error).toBeGreaterThanOrEqual(2);
+  });
+
   test("validates local markdown links inside topic bodies", () => {
     const root = tempDir();
     writeFileSync(

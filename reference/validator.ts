@@ -217,6 +217,19 @@ interface TopicCheckResult {
   wikiLinks: string[];
 }
 
+function isKebabCaseSlug(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+function normalizeSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
 function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult {
   const rel = relative(ctx.root, path);
   const content = readFileSync(path, "utf8");
@@ -236,6 +249,9 @@ function checkTopicFile(ctx: ValidationContext, path: string): TopicCheckResult 
   if (!name) {
     push(ctx, "error", rel, "frontmatter missing `name`");
   } else {
+    if (!isKebabCaseSlug(name)) {
+      push(ctx, "error", rel, "frontmatter `name` must be a kebab-case slug");
+    }
     const expectedName = expectedNameForPath(path, metadataType);
     if (name !== expectedName) {
       push(
@@ -406,6 +422,23 @@ export function validateMemoryDirectory(root: string): ValidationReport {
   const topicNames = new Set(
     topicResults.map((result) => result.name).filter((name): name is string => Boolean(name)),
   );
+  const firstTopicByNormalizedName = new Map<string, TopicCheckResult>();
+  for (const result of topicResults) {
+    if (!result.name) continue;
+    const normalizedName = normalizeSlug(result.name);
+    if (!normalizedName) continue;
+    const first = firstTopicByNormalizedName.get(normalizedName);
+    if (first) {
+      push(
+        ctx,
+        "error",
+        relative(ctx.root, result.path),
+        `duplicate topic name after slug normalization: ${normalizedName} already used by ${relative(ctx.root, first.path)}`,
+      );
+    } else {
+      firstTopicByNormalizedName.set(normalizedName, result);
+    }
+  }
   for (const result of topicResults) {
     for (const wikiLink of result.wikiLinks) {
       if (!topicNames.has(wikiLink)) {
