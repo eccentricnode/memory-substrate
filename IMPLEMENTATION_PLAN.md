@@ -9,6 +9,9 @@
   - Action: enforce the research model codex-only policy for provider-qualified Anthropic values; current model-shape validation can allow non-codex research models through.
   - Action: strongly bound research answer size/content before surfacing it to users or reactive injection; citation validation does not fully constrain returned synthesis text.
   - Action: improve reactive dry-run reporting/audit coverage so dry-run can expose the bounded would-inject content without performing injection.
+  - Action: make explicit user "remember" requests MUST-save even when the live worker returns no drafts; do not rely solely on model compliance for SPEC-required saves.
+  - Action: broaden worker dedupe/update checks across memory types so cross-type duplicate memories cannot bypass type-scoped matching.
+  - Action: reject unsafe draft `title`/`relativePath` control characters during preflight before mutation instead of relying on validator rollback.
   - Preserved unresolved non-blocking risks: live-specific malformed draft/out-of-root behavior mostly relies on applicator unit tests; injected/custom runner out-of-root mutation cannot be proven by the current root-only snapshot guard.
 
 - P2 — Live harness cadence.
