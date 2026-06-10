@@ -95,6 +95,22 @@ interface MemorySubstrateExtensionOptions {
   disabledSignal?: (ctx: PiContext) => boolean | string | undefined;
 }
 
+// Worker audit is best-effort telemetry. The write-worker runs async on
+// `agent_end` and can outlive the session (notably `-p` one-shot mode), at which
+// point pi throws "extension ctx is stale" on append. Swallow that so a
+// torn-down/replaced session can't crash the worker's audit write.
+export function safeAppendEntry(
+  pi: { appendEntry?: (customType: string, data?: unknown) => void },
+  customType: string,
+  data?: unknown,
+): void {
+  try {
+    pi.appendEntry?.(customType, data);
+  } catch {
+    // session replaced/torn down — drop the best-effort audit entry
+  }
+}
+
 function createCore(
   ctx: PiContext,
   pi: PiEventApi,
@@ -103,7 +119,7 @@ function createCore(
   return new Core({
     cwd: ctx.cwd,
     state: pi.appendEntry
-      ? { appendEntry: (customType, data) => pi.appendEntry?.(customType, data) }
+      ? { appendEntry: (customType, data) => safeAppendEntry(pi, customType, data) }
       : undefined,
     worker: options.worker ?? createLivePiMemoryWorkerRunner(),
     research: (request) => researchMemory(request, options.research),
