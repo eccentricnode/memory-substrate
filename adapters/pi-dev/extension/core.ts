@@ -202,6 +202,7 @@ export interface ReactiveResearchAuditRecord {
   status?: MemoryResearchResult["status"];
   citationCount?: number;
   wouldInject?: boolean;
+  wouldInjectLines?: string[];
   error?: string;
   createdAt: number;
 }
@@ -570,7 +571,8 @@ export class MemoryExtensionCore {
         action: "dry-run",
         reason: gate.reason,
         topScore: gate.topScore,
-        wouldInject: true,
+        wouldInject: Boolean(gate.injection),
+        wouldInjectLines: gate.injection?.selectedLines ?? [],
         createdAt: this.scheduler.now(),
       });
       return undefined;

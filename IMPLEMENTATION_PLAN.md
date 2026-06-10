@@ -3,7 +3,12 @@
 - Current findings.
   - Live harness cadence latest run: `bun run test:pi-live` passed with 8 pass, 0 fail, 890 expect() calls, 8 tests across 1 file, runtime 316.08s.
   - Reactive research env root/model drift was found and resolved in code/tests: reactive research now uses the same explicit `PI_MEMORY_ROOT`, `PI_MEMORY_MODEL`, and `PI_MEMORY_RESEARCH_MODEL` env contract as manual research, preserving resolved root selection for subprocesses. Focused `bun test tests/config-and-injection.test.ts` passed with 27 pass, 0 fail, 96 expect() calls.
-  - Action: improve reactive dry-run reporting/audit coverage so dry-run can expose the bounded would-inject content without performing injection.
+  - Reactive dry-run audit finding is resolved in this turn: audit now records actual bounded `wouldInject` state and selected `wouldInjectLines`, with focused config/injection tests. Final verification: focused `bun test tests/config-and-injection.test.ts` passed with 29 pass, 0 fail, 108 expect() calls; full gate `bunx tsc --noEmit && bun test` passed with 166 pass, 8 skip, 0 fail, 869 expect() calls, 174 tests across 11 files.
+  - Finding: visible `before_agent_start` injection may currently be `systemPrompt`-only despite specs requiring operator-visible attributed injection.
+  - Finding: `session_before_compact` may not drain a newly enqueued compaction item when another worker run is already in flight.
+  - Finding: migrator CRLF frontmatter/local parser behavior and fenced-code link rewriting may diverge from shared parser behavior.
+  - Finding: UI notify warning level may need `warning` per pi.dev docs, not `warn`.
+  - Finding: worker subprocess env forwarding may be broader than the spec contract.
   - Action: broaden worker dedupe/update checks across memory types so cross-type duplicate memories cannot bypass type-scoped matching.
   - Action: reject unsafe draft `title`/`relativePath` control characters during preflight before mutation instead of relying on validator rollback.
   - Finding: failed queue retention is process-local even though specs discuss persisted extension state/run metadata, so full candidate recovery after extension/session restart is unclear.

@@ -666,6 +666,7 @@ describe("reactive memory trigger", () => {
     const root = tempDir();
     writeIndex(root, ["- [Bun checks](project_bun.md) — dry-run sentinel"]);
     const research = recordingResearch(foundResearch());
+    const state = recordingState();
     const disabled = new MemoryExtensionCore({
       cwd: tempDir(),
       env: {
@@ -691,6 +692,7 @@ describe("reactive memory trigger", () => {
         PI_MEMORY_REACTIVE: "1",
         PI_MEMORY_DRY_RUN: "1",
       },
+      state,
       research,
     });
 
@@ -715,6 +717,51 @@ describe("reactive memory trigger", () => {
       }),
     ).toBeUndefined();
     expect(research.calls).toHaveLength(0);
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]?.type).toBe("memory-substrate-reactive-research");
+    expect(state.entries[0]?.data).toMatchObject({
+      action: "dry-run",
+      reason: "recall-cue",
+      wouldInject: true,
+      wouldInjectLines: ["- [Bun checks](project_bun.md) — dry-run sentinel"],
+    });
+    expect(
+      (state.entries[0]?.data as { createdAt?: unknown } | undefined)?.createdAt,
+    ).toEqual(expect.any(Number));
+  });
+
+  test("reactive dry-run reports gated turns without bounded fallback content", async () => {
+    const root = tempDir();
+    writeIndex(root, []);
+    const research = recordingResearch(foundResearch());
+    const state = recordingState();
+    const dryRun = new MemoryExtensionCore({
+      cwd: tempDir(),
+      env: {
+        PI_MEMORY_ROOT: root,
+        PI_MEMORY_REACTIVE: "1",
+        PI_MEMORY_DRY_RUN: "1",
+      },
+      state,
+      research,
+    });
+
+    const result = await dryRun.handleBeforeAgentStartAsync({
+      prompt: "What did we decide earlier about release notes?",
+      systemPrompt: "base",
+    });
+
+    expect(result).toBeUndefined();
+    expect(research.calls).toHaveLength(0);
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]?.type).toBe("memory-substrate-reactive-research");
+    expect(state.entries[0]?.data).toMatchObject({
+      action: "dry-run",
+      reason: "recall-cue",
+      topScore: 0,
+      wouldInject: false,
+      wouldInjectLines: [],
+    });
   });
 
   test("one reactive turn fires research at most once", async () => {
